@@ -37,6 +37,24 @@ PR 创建 / 更新时，CI 并行触发多个 Agent（见 [`../.github/workflows
 合并门禁 = **verification 通过（机械）+ CODEOWNERS 人工审批（权威裁决）**，两者齐备方可合并。
 **Agent Review 不是独立门禁**——它是喂给 CODEOWNERS 人审的**参考输入**，不自动放行、也不自动卡住合并。**AI 永不作为合并门禁，合并与否恒由人裁决。**
 
+## main 分支保护（已在 GitHub 生效）
+
+上面的「合并门禁」策略已由 GitHub repository ruleset **`main-protection`**（`refs/heads/main`，`enforcement=active`）**机械强制**。版本化记录见 [`../.github/rulesets/main-protection.json`](../.github/rulesets/main-protection.json)（导出快照，**非生效源**——生效源在 GitHub 设置；该目录 GitHub 不自动应用，仅作记录 / 可重放，见其 [README](../.github/rulesets/README.md)）。
+
+当前强制项（以 JSON 为准）：
+
+| 规则 | 强制 |
+|---|---|
+| 必须经 PR 合并（禁直推 `main`） | `pull_request` |
+| 必须审批数 | 1 |
+| 必须 CODEOWNERS 审批 | `require_code_owner_review: true`（= [`../.github/CODEOWNERS`](../.github/CODEOWNERS) 的人审；单人下 = 第二账号 `@vpd-ci-bot` 手动批） |
+| 新推送使旧审批失效 | `dismiss_stale_reviews_on_push: true` |
+| 必须状态检查通过 | `gates`（= [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) 的四道门），`strict`（合并前须与 `main` 同步） |
+| 禁删除 / 禁强推 `main` | `deletion` / `non_fast_forward` |
+| bypass | 无（`bypass_actors: []`，管理员亦不豁免） |
+
+即「合并门禁 = verification（`gates` 绿）+ CODEOWNERS 人审」现已**机械生效、不可绕过**；但仍恒由**人**裁决合并（§2）——`gates` 只卡"测试/质量没过不许合"，**approve 与点 merge 仍是人**。
+
 ## 定位
 
 Agent Review 结果**仅供人工评审参考**，不替代人工评审、测试或上线判断。**AI 永不作为合并门禁**——合并与否恒由人（CODEOWNERS）裁决。

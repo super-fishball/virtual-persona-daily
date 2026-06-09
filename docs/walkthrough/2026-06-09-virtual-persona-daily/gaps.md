@@ -37,6 +37,12 @@
 - **影响**：冷读 agent（无上下文）按字面「bot 当全路径门禁」误报与 §2「AI 永不作为合并门禁」冲突——实为单人模拟「作者 ≠ 审批者」的**人工**审批，非 AI / 自动化门禁，**不违 §2**。一次冷读即触发此误报。
 - **现状（已修）**：已在 CODEOWNERS 顶部注释澄清——`@vpd-ci-bot` = 开发者第二账号、手动审、非 AI、与 §2 不冲突；并警示绝不可接入自动 approve 的 CI；真实多人时换各域真人 / 团队。
 
+### B5. 分支保护 ruleset 只在 GitHub 端 → 仓库内无版本化记录，冷读看不到真实合并门禁
+
+- **现象**：`main` 分支保护以 GitHub repository ruleset（`main-protection`，`id 17444695`，`enforcement=active`）形式只存在于 GitHub 设置；仓库内此前无版本化记录。强制项（PR + 1 审批、CODEOWNERS 审、`gates` CI strict 必过、禁删 / 禁强推、无 bypass）只在 GitHub UI 可见。
+- **影响**：冷读仓库看不到「合并门禁的真实强制点」，易低估 / 误判治理强度；且 ruleset 漂移无 diff 可查、无重放来源。
+- **现状（已修）**：已把导出 JSON 落 [`../../../.github/rulesets/main-protection.json`](../../../.github/rulesets/main-protection.json)（同目录 README 注明「GitHub 不自动应用本目录、生效源在设置」，避免下一个误读）；并在 [`../../../rules/review-gates.md`](../../../rules/review-gates.md) 文档化实际强制的门禁。同 [[B4]] 一类：GitHub 端配置不入库 → 冷读盲区，修法 = 版本化 + 文档化。
+
 ---
 
 ## 备注
