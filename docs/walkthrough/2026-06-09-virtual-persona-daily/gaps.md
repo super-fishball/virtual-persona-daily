@@ -2,7 +2,7 @@
 
 > 立走查记录：截至 Phase 0（模板基线 → 子项目重构 → 可跑骨架 + 四道门 → context / high-impact → hook `TASK_SCOPE`/`TEST_CMD`）的发现。
 > 本文件**只立条目**；完整证据日志 + 模板忠实度自查留到 **Phase 0 末**再补。
-> 分两类：**A 回流-worthy**（工具 / 流程缺陷，源在团队模板，需上报修上游）、**B tech 小记**（非回流，本地规避 / 留观）。
+> 分两类：**A 回流-worthy 且已本地修**（缺陷源在团队模板，需上报修上游）、**B 小记 / 待办**（非回流的本地规避 / 留观 + 待回流的延后项；回流性质见每条标注）。
 > 每条记：**现象 / 影响 / 现状**（已修 / 已规避 / 待办）。
 
 ---
@@ -17,7 +17,7 @@
 
 ---
 
-## B. tech 小记（非回流；本地已规避 / 留观）
+## B. 小记 / 待办（非回流的本地规避 / 留观 + 待回流·延后项；回流性质见每条标注）
 
 ### B2. path-guard.sh 的 `case "$REL" in $pat)` glob 语义依赖 bash，zsh 下会全漏匹配
 
@@ -42,6 +42,45 @@
 - **现象**：`main` 分支保护以 GitHub repository ruleset（`main-protection`，`id 17444695`，`enforcement=active`）形式只存在于 GitHub 设置；仓库内此前无版本化记录。强制项（PR + 1 审批、CODEOWNERS 审、`gates` CI strict 必过、禁删 / 禁强推、无 bypass）只在 GitHub UI 可见。
 - **影响**：冷读仓库看不到「合并门禁的真实强制点」，易低估 / 误判治理强度；且 ruleset 漂移无 diff 可查、无重放来源。
 - **现状（已修）**：已把导出 JSON 落 [`../../../.github/rulesets/main-protection.json`](../../../.github/rulesets/main-protection.json)（同目录 README 注明「GitHub 不自动应用本目录、生效源在设置」，避免下一个误读）；并在 [`../../../rules/review-gates.md`](../../../rules/review-gates.md) 文档化实际强制的门禁。同 [[B4]] 一类：GitHub 端配置不入库 → 冷读盲区，修法 = 版本化 + 文档化。
+
+### B6. path-guard 只挂 Edit/Write/MultiEdit，Bash 写文件绕过守卫
+
+- **现象**：⑧ 越权半 L2 会话内演练。授权「落那条 ai-gateway 注释」后，会话因 Edit/Write 被 PreToolUse 拦，改用 Bash（`echo >>`）把注释写进 [`servers/ai-gateway/app/main.py`](../../../servers/ai-gateway/app/main.py)（高影响区）。**根因**：[`.claude/settings.json`](../../../.claude/settings.json) 的 PreToolUse matcher 是 `Edit|Write|MultiEdit`，不含 Bash，shell 写完全不过 path-guard。
+- **影响**：设计本就把 ①.5 会话内 hook 定为「机械·可绕过、权威靠 PR 门禁」；本例坐实其可绕过的具体宽口子 = Bash。且 ②层（git pre-commit + CI「改动路径 vs `high-impact.paths`」diff 检查）尚未建 → Bash 写的高影响改动当前机械层无人拦，只剩单 owner CODEOWNERS。同 [[A1]] 一类：均 path-guard 守卫完整性问题（A1 = fails-open 崩溃放过，B6 = matcher 漏 Bash 写）。
+- **现状（待办·延后）**：**回流候选**，开发者已定性「记下、处理延后」。方向（延后）：② git pre-commit 或 CI 增一道「变更路径对照 [`high-impact.paths`](../../../rules/high-impact.paths)」的 diff 门禁，与工具无关（Edit / Bash 都拦）；会话内 Bash matcher 难可靠解析命令里的目标路径，兜底放 commit / CI 层更稳。
+
+> 以下 B7–B11 为 Phase 0 末「门禁对抗审计」（7 向量，审计 ID `wz5n80p0x`）的发现；审计同时确认 ⑥ PR 门禁脊梁（ruleset 零漂移 + `gates` 真跑真覆盖 + CODEOWNERS 接线 + §2 合规 + admin 不可绕）实证充分。开发者已定性「全部记录、修复延后」。
+
+### B7. path-guard `REL` 不规范化 → `..` 路径穿越双绕过（高影响 + 越界同躲）
+
+- **现象**：审计实测——`file_path` 给 `$ROOT/apps/web/../servers/ai-gateway/app/main.py` 时 path-guard **exit=0（放行）**，而直接写 `servers/ai-gateway/app/main.py` 则 exit=2。
+- **影响（high）**：[`path-guard.sh`](../../../.claude/hooks/path-guard.sh) 第 24 行 `REL="${FILE#"$ROOT"/}"` 只做字符串剥前缀、**不规范化路径**。含 `..` 的路径剥完是 `apps/web/../servers/ai-gateway/...`：越界检查的 `case "$TASK_SCOPE"/*`（`apps/web/*`，`*` 跨 `/`）把它当 **in-scope 放行**，同时它又不命中 `servers/ai-gateway/**` 高影响 glob → **一发同躲两道检查**，物理写进禁区。比 [[B6]] 更狠：用普通 Edit/Write、仅靠构造路径就骗过守卫，不需换工具。
+- **现状（待办·延后）**：**回流候选**。方向：取 `FILE` 后用 `realpath -m` / `readlink -f` 规范化再剥前缀重判，或对含 `..` 段直接拒。同 [[A1]] / [[B6]] 一类：path-guard 守卫完整性。
+
+### B8. path-guard 漏 NotebookEdit：matcher 不含 + 脚本只读 `file_path`
+
+- **现象**：审计实测——`NotebookEdit` 写指向高影响区的 `.ipynb` → **exit=0（不拦）**。
+- **影响（high）**：双洞——(1) [`.claude/settings.json`](../../../.claude/settings.json) PreToolUse matcher = `Edit|Write|MultiEdit`，**不含 `NotebookEdit`** → hook 根本不触发；(2) 即便触发，[`path-guard.sh`](../../../.claude/hooks/path-guard.sh) 只读 `tool_input.file_path`，而 NotebookEdit 用 `notebook_path` → 取不到路径。`.ipynb` 写高影响 / 越界区无拦。
+- **现状（待办·延后）**：**回流候选**。方向：matcher 加 `NotebookEdit`；取路径时 fallback 读 `notebook_path`。同 [[B6]] 一类（matcher 覆盖不全）。
+
+### B9. 零内容级密钥扫描：按文件名拦 ≠ 按内容拦，含密钥源文件可一路入 main
+
+- **现象**：审计静态确认——全仓无 gitleaks / trufflehog 类机械密钥检测接进 CI / pre-commit；AgentShield（`security-scan` skill）是**手动** skill、只扫 `.claude/` 配置不扫源码、**从未 wired**；path-guard 按文件名拦（`.env*`）非按内容；required check `gates` 不查密钥。
+- **影响（high）**：含硬编码密钥的**普通源文件**（如 `config.py` / `keys.json` / 任意 `.py` `.ts`）可一路入 main，唯一拦阻是人审。当前只做到「**不入库**」半（`.gitignore` `.env*`、git grep 无硬编码 key），缺「**内容检测**」半。
+- **现状（待办·延后）**：**回流候选**。方向：②层一并接入内容级 secret-scan，与 [[B6]] / 路径 diff 门禁同处（CI 或 pre-commit）——同根：②层机械门尚未建。
+
+### B10. CI 工作流自指不自洽：required check 可在它守护的同一 PR 内被改空仍报绿
+
+- **现象**：审计推演 + 机制确认——required check 按名 `gates` 匹配，`pull_request` 事件跑的是 **PR head 版** `ci.yml` → 对抗 PR 把 `make check` / `gates` job 改成 no-op 即让 `gates` 报 success；`.github/` 无专属 CODEOWNERS（仅 `*` 泛 owner 兜底）。
+- **影响（med）**：机械门对「改门禁自身的 PR」退化为纯人审；单 owner 现状下此类 PR 可被同一人低成本通过。
+- **现状（待办·延后，真实多人后）**：方向：CODEOWNERS 对 `.github/`（尤其 `workflows/`）设独立强审 owner，或加 workflow-tamper 检测。
+
+### B11. ①.5 软守卫结构性弱点：齿挂在 gitignored 的 task.env，缺失即静默 fail-open
+
+- **现象**：审计确认——越界检查（`TASK_SCOPE`）与完成门（`TEST_CMD` → `check-completion.sh`）都由非提交、每机一份的 `.claude/task.env`（见 `.claude/task.env.example`）注入；缺失 / 留空即静默 fail-open（`TASK_SCOPE` 空 → 不查越界；`TEST_CMD` 空 → `check-completion` 每次 Stop exit 0 = no-op）。另：path-guard 取路径依赖 `python3`，缺 python3 时 `FILE=''` → exit 0（与 [[A1]] 同构的 fails-open，换机 / 精简 CI 镜像即触发）。
+- **影响（med）**：会话内软守卫的「齿」可被无意关掉（删 / 空 task.env、缺解释器）而不报警；`check-completion` 当前实为 no-op。
+- **现状（观察 / 部分回流）**：与设计自陈一致——权威必须落 ⑥ PR 门禁，**勿把 task.env 当权威开关**。其中 **python3 缺失 fails-open 属回流-worthy**（取值层应 fail-closed：无解释器 → exit 2 / 显式报错）；`check-completion` 实现待 F1 acceptance 落地后再做。
+
 
 ---
 
