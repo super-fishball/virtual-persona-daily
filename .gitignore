@@ -25,6 +25,9 @@ build/
 .env.*
 !.env.example
 
+# --- 按任务注入的本地 hook 变量（保留 committed 的 .example）---
+.claude/task.env
+
 # --- misc ---
 .DS_Store
 *.log

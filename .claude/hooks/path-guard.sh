@@ -13,6 +13,10 @@ set -uo pipefail
 INPUT="$(cat)"
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
+# 按任务注入：source 本地 .claude/task.env（gitignored）→ TASK_SCOPE / TEST_CMD。
+# 见 .claude/task.env.example；改文件即生效；不存在则按空处理（不查越界）。
+[ -f "$ROOT/.claude/task.env" ] && . "$ROOT/.claude/task.env"
+
 # 取目标文件路径（无 python3 时可换 jq / node）
 FILE="$(printf '%s' "$INPUT" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("tool_input",{}).get("file_path",""))' 2>/dev/null || true)"
 [ -z "$FILE" ] && exit 0   # 非文件类工具 → 放行
@@ -26,19 +30,19 @@ if [ -f "$PATHS_FILE" ]; then
     case "$pat" in ''|\#*) continue ;; esac
     # shellcheck disable=SC2254
     case "$REL" in $pat)
-      echo "development-guard｜命中高影响/禁止路径 [$pat]：$REL → 暂停，需人工确认（见 rules/high-impact.paths / high-impact.md）" >&2
+      echo "development-guard｜命中高影响/禁止路径 [${pat}]：${REL} → 暂停，需人工确认（见 rules/high-impact.paths / high-impact.md）" >&2
       exit 2 ;;
     esac
   done < "$PATHS_FILE"
 fi
 
 # (2) 跨子项目越界（目录结构即机读源）
-TASK_SCOPE="${TASK_SCOPE:-}"   # TODO（真实项目注入）：如 apps/web、servers/api
+TASK_SCOPE="${TASK_SCOPE:-}"   # 由 .claude/task.env 注入（见顶部 source）；空=不查越界。例：servers/api
 if [ -n "$TASK_SCOPE" ]; then
   case "$REL" in
     "$TASK_SCOPE"/*) : ;;                       # 在本任务范围内 → 放行
     apps/*|servers/*)
-      echo "development-guard｜越界：本任务范围=$TASK_SCOPE，却改 $REL → 跨子项目须走 feature 层契约先行再拆分，暂停" >&2
+      echo "development-guard｜越界：本任务范围=${TASK_SCOPE}，却改 ${REL} → 跨子项目须走 feature 层契约先行再拆分，暂停" >&2
       exit 2 ;;
   esac
 fi

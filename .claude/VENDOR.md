@@ -70,6 +70,20 @@
 
 ---
 
+## 本地改动：team-docs 模板 hooks
+
+> 模板基线（commit `9426e4c`「vendor team-docs template baseline」）自带的 hooks 属本地 vendored 件；
+> 对其改动逐条记此，便于刷新时对账（呼应下方「刷新流程」末条）。
+
+| 文件 | 本地改动 | 日期 |
+|---|---|---|
+| `hooks/path-guard.sh` | ①顶部 `source .claude/task.env`（按任务注入 `TASK_SCOPE`）+ 填 `TASK_SCOPE` TODO（空=不查越界）；②修复 block 文案中 `$VAR` 紧跟全角标点在 `set -u` / bash 3.2 下被并入变量名误报 unbound（越界 echo 实测 exit 1 而非 2）→ 越界与高影响两条 echo 均改 `${VAR}`。high-impact 匹配逻辑 / 路径源未动。 | 2026-06-09 |
+| `hooks/check-completion.sh` | 顶部加 `ROOT` + `source .claude/task.env`（按任务注入 `TEST_CMD`）；填 `TEST_CMD` TODO；(2) 验收↔证据 TODO 保留并注明「待 F1 acceptance 落地后实现」（不造假解析器）。 | 2026-06-09 |
+
+注入机制见 [`task.env.example`](task.env.example)（committed 模板）；真实 `.claude/task.env` 为 gitignored，改文件即生效。
+
+---
+
 ## 刷新流程（vendor 不自动获上游更新，需手动同步）
 
 ```
