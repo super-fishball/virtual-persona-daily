@@ -8,10 +8,10 @@
 # /CLAUDE.md     @TODO-team
 
 # 专人专项：各子项目归对应负责人
-# /apps/web/        @TODO-frontend
-# /apps/admin/      @TODO-frontend
-# /servers/api/     @TODO-backend
-# /servers/worker/  @TODO-backend
+# /apps/web/                     @TODO-frontend
+# /servers/api/                  @TODO-backend
+# /servers/generation-service/   @TODO-backend
+# /servers/ai-gateway/           @TODO-backend
 
 # 高影响区可指定更专门的责任域成员（与 rules/high-impact.md 对应）
 # /servers/api/src/auth/      @TODO-security

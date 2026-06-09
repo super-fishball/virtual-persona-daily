@@ -10,8 +10,8 @@
 
 - `context/` — 产品/业务/术语上下文
 - `rules/` — 全局 AI 协作规则
-- `apps/` — 前端类子项目（web、admin…）
-- `servers/` — 后端类子项目（api、worker…）
+- `apps/` — 前端类子项目（web）
+- `servers/` — 后端类子项目（api、generation-service、ai-gateway）
 - `.github/` — CODEOWNERS、PR 模板、CI
 
 ## 快速开始

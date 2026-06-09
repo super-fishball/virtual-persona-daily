@@ -6,9 +6,20 @@
 
 ## 1. 项目说明
 
-<!-- TODO（项目接入时填写）：本项目做什么、背景、整体架构一句话概述。 -->
+virtual-persona-daily：为虚拟人物（persona）生成每日日常事件 / 内容的产品。
 
-本仓库为 monorepo，包含多个子项目（见 `apps/`、`servers/`）。AI Agent 的行为边界由本文件 + `rules/` + 各子项目的 `CLAUDE.md`/`rules/` 共同约束。
+本仓库为 monorepo，包含 4 个子项目：
+
+| 子项目 | 职责 | 栈 | 契约角色 |
+|---|---|---|---|
+| [`apps/web`](apps/web/) | 面向用户的前端 | React / TypeScript | `servers/api` 的消费方 |
+| [`servers/api`](servers/api/) | 后端 API，聚合业务 | Node / TypeScript | 对 web 提供方；对 generation-service 消费方 |
+| [`servers/generation-service`](servers/generation-service/) | 事件生成（调 LLM） | Python | 对 api 提供方；对 ai-gateway 消费方 |
+| [`servers/ai-gateway`](servers/ai-gateway/) | 薄 LLM 代理（DeepSeek） | Python | 对 generation-service 的内部提供方 |
+
+数据流：`apps/web` → `servers/api` → `servers/generation-service` → `servers/ai-gateway` → DeepSeek。
+
+AI Agent 的行为边界由本文件 + `rules/` + 各子项目的 `CLAUDE.md`/`rules/` 共同约束。
 
 ---
 
