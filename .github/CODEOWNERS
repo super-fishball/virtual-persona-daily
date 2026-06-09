@@ -1,20 +1,33 @@
 # CODEOWNERS — 指定各路径的必须审批人
-# 语法：<路径匹配>  <@负责人...>
+# 语法：<路径匹配>  <@负责人...>；同一路径以「最后匹配」为准。
 # PR 触及对应路径时，GitHub 自动将负责人加为必须审批人。
+#
+# ── 本仓现状：单人模拟多人 ───────────────────────────────────────────
+# @vpd-ci-bot = 开发者本人的「第二个 GitHub 账号」，由本人手动点 approve，
+#   仅用于满足 GitHub「PR 作者 ≠ 审批者」、模拟"另一个人来批"。
+#   它【不是 AI、不是自动审批】；合并与否仍由人裁决 → 与 CLAUDE.md §2 不冲突
+#   （§2 禁的是「AI / 自动化当合并门禁」，不禁开发者以第二身份人工审批）。
+# ⚠️ 绝不可把 @vpd-ci-bot 的 token 接进任何「自动 approve」的 CI / Action——
+#   那会让审批变成自动门禁，才真的违反 §2。
+# 真实多人后：把下面的 @vpd-ci-bot 换成各域真实人 / 团队（见各「@TODO-*」占位）。
+# ─────────────────────────────────────────────────────────────────────
 
-# 根级规则与上下文（全局，无单一主人、集体共有 → 指定为「组/团队」而非单人；变更须涉及方共同把关）
+# 根级规则与上下文（全局，无单一主人、集体共有 → 真实多人时指为「组 / 团队」）
 # /rules/        @TODO-team
 # /context/      @TODO-team
 # /CLAUDE.md     @TODO-team
 
-# 专人专项：各子项目归对应负责人
-# /apps/web/                     @TODO-frontend
-# /servers/api/                  @TODO-backend
-# /servers/generation-service/   @TODO-backend
-# /servers/ai-gateway/           @TODO-backend
+# 全局兜底：任何改动都需经审批（单人下统一收敛到第二账号 @vpd-ci-bot 手动批）
+*                               @vpd-ci-bot
 
-# 高影响区可指定更专门的责任域成员（与 rules/high-impact.md 对应）
+# 专人专项：各子项目归对应负责人（单人下暂统一为第二账号 @vpd-ci-bot；真实多人时换各域真人 / 团队）
+/apps/web/                     @vpd-ci-bot
+/servers/api/                  @vpd-ci-bot
+/servers/generation-service/   @vpd-ci-bot
+/servers/ai-gateway/           @vpd-ci-bot
+
+# 高影响区可指定更专门的责任域成员（与 rules/high-impact.md 对应；真实多人时启用）
 # /servers/api/src/auth/      @TODO-security
 # /servers/api/migrations/    @TODO-dba
 
-# TODO（项目接入时填写）：将 @TODO-* 替换为真实 GitHub 账号 / 团队。
+# TODO（真实多人接入时）：将 @vpd-ci-bot / @TODO-* 替换为真实 GitHub 账号 / 团队。
