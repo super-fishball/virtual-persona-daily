@@ -1,0 +1,42 @@
+name: CI
+
+# 验证门禁 CI（非 Agent Review）：PR→main 与 push→main 时跑全部 4 子项目的四道门。
+# 复用根 Makefile：make install（pnpm workspace + uv sync x2）→ make check（lint/typecheck/test/build）。
+# 任一门失败 → workflow 红；全过 → 绿。供 main 分支保护「require status check」选用（check 名 = 下方 job 名）。
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.2
+
+      - name: Setup Node 24 (+ pnpm cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Setup uv + Python 3.12 (+ cache)
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install deps (pnpm workspace + uv sync x2)
+        run: make install
+
+      - name: Gates — build / test / lint / typecheck (4 子项目)
+        run: make check
