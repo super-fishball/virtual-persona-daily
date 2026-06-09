@@ -1,14 +1,40 @@
 # 单一机读路径源 —— hooks（.claude/hooks/path-guard.sh）/ CI 硬门禁 / 开发中自检 共用一份。
-# 目的：散文 high-impact.md 与机械检查共用同一份路径清单，避免「散文 + 配置」两份漂移。
-#   high-impact.md 只解释 why、指向本文件，不复述路径。
+# 散文 high-impact.md 只解释 why、指向本文件，不复述路径（避免「散文 + 配置」两份漂移）。
 #
-# 格式：每行一个 shell glob（相对仓库根）；空行与 # 开头忽略。
-# ⚠️ 模板：以下为示例占位，真实项目接入时按实际高影响区增删。
+# 格式：每行一个 glob（相对仓库根）；空行与 # 开头忽略。
+# ⚠️ 匹配语义 = path-guard.sh 的 POSIX `case` glob：`*` 跨 `/`（含子目录），`**` 等价于 `*`。
+#
+# 现状：骨架期按「子项目 / 目录」粒度收口；具体文件待首刀模块落地后细化（见各行注释）。
+# 有的放矢：web 只收口定位相关、api 只收口性格「录入审核」面（均 dormant，落地自动生效）；
+#          api 其余（聚合 / 契约）、servers/api 鉴权暂不入，待 F2 契约 + 鉴权再按需纳入。
+# 优先级：[P0] 三类（密钥 / 性格→prompt / 定位 PII）首刀即生效。
 
-# --- 示例（替换为真实路径）---
-# servers/api/src/auth/**          # 认证 / 鉴权
-# servers/api/src/payment/**       # 支付 / 计费
-# servers/**/migrations/**         # DB 迁移（破坏性变更）
-# **/.env*                         # 密钥 / 凭证（亦属 forbidden 红线）
-# .github/workflows/**             # CI/CD 配置
-# .github/CODEOWNERS               # 审批人配置
+# ── [P0] 密钥：LLM key（在 ai-gateway）、高德 key（在 gen）均不得硬编码 / 提交 ──
+# 任何 .env 改动都要人看（根级 + 子项目级；亦属 forbidden 红线）。
+.env*
+**/.env*
+
+# ── generation-service ── 收口三件高影响：
+#   [P0] 用户性格 → LLM prompt 注入面（prompt 构建 / 录入审核）
+#   [P0] 高德 key 的使用面
+#   [一致性] 事件写入：并发自链幂等、Event 不可变
+# 骨架期标全目录；首刀后收窄到 prompt 构建 / 录入审核 / 事件写入 等具体模块。
+servers/generation-service/**
+
+# ── ai-gateway ── 收口三件高影响：
+#   [P0] 性格 → prompt 注入面的「输出审核」侧
+#   [P0] LLM 密钥集中持有
+#   [成本] LLM 成本 / 限流 / 重试 / fallback 统一兜底
+# 骨架期标全目录；首刀后收窄到 provider 适配 / guardrails / 限流 等具体模块。
+servers/ai-gateway/**
+
+# ── [P0] servers/api ── 用户性格「录入审核」面（§11 首道注入防御）：
+# persona 创建 / 录入校验先在 api 把关，再下传 gen 当数据拼 prompt。
+# 当前 hello 骨架无 persona 代码 → dormant；落地（如 src/persona/**、录入校验）即自动生效。
+servers/api/src/*persona*
+
+# ── [P0] 用户定位 PII（web）：授权、最小化到城市、不存精确坐标 ──
+# 只收口 web 的定位相关代码，非定位页面不算高影响。
+# 下方为定位 / 地理相关 glob：当前 hello 骨架不命中，待首刀定位模块落地后自动生效（按需对齐目录名）。
+apps/web/src/*location*
+apps/web/src/*geo*

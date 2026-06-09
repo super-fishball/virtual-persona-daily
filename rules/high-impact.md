@@ -24,14 +24,17 @@
 | 跨子项目契约 | API 接口、数据结构、消息格式 |
 | 生产配置 | 环境变量、部署参数、特性开关 |
 
-## 本项目高影响区（具体路径）
+## 本项目高影响区
 
-<!-- TODO（项目接入时填写）：把上述类目落到本项目的具体目录/文件/模块。
-示例：
-- servers/api/src/auth/**        — 认证授权
-- servers/api/src/billing/**     — 计费
-- servers/api/migrations/**      — 数据迁移
--->
+> 具体路径见 [`high-impact.paths`](high-impact.paths)（**唯一机读源**，hooks / CI / 自检共用）。
+> 本节只说明**哪些面、谁收口、为什么**，不复述路径。标 ⚡ 的三类首刀即生效，为当前最高优先级。
 
-<!-- TODO（建确定性 pre-commit hook 时）：把上面的路径抽成单一机读源（如 high-impact.paths），
-     本散文文件与 hook 共用同一份，避免两份路径列表漂移。见 rules/development-guard.md 的触发说明。 -->
+| 高影响面 | 收口子项目 | 为什么高影响 |
+|---|---|---|
+| ⚡ 密钥 | ai-gateway（LLM key）/ generation-service（高德 key） | 凭证泄露不可逆；硬编码 / 提交即红线（另见 [`forbidden.md`](forbidden.md)）。凭证文件的任何改动都要人看。 |
+| ⚡ 用户性格 → LLM prompt 注入面 | api（录入审核·§11 首道注入防御）+ generation-service（prompt 构建）+ ai-gateway（输出审核） | 用户填写的性格被当数据拼进 prompt，存在提示注入 / 越权生成风险；需「录入审核（api 首道）+ 生成侧 + 输出审核」多道把关。 |
+| ⚡ 用户定位 PII | web（定位授权 / 最小化） | 定位是敏感个人信息；须显式授权、最小化到城市、不落精确坐标。只收口 web 的定位相关代码，非定位页面不算高影响。 |
+| LLM 成本 / 限流 / 失败兜底 | ai-gateway | 失控调用直接烧钱、拖垮上游；限流 / 重试 / fallback 统一在网关兜。 |
+| 数据一致性 | generation-service（事件写入） | 事件自链并发触发需幂等；Event 不可变，写入错误会污染时间线且难回滚。 |
+
+> **servers/api**：用户性格「录入审核」面（persona 创建 / 录入校验）作为 §11 的**首道注入防御**已纳入高影响（见 [`high-impact.paths`](high-impact.paths)，dormant，落地即生效）；其余聚合 / 契约 / 鉴权部分暂不入，待 F2 契约与鉴权落地后按需纳入。

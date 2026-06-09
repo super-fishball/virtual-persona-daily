@@ -4,6 +4,7 @@
 
 ## 当前已建
 
+- [`product-overview.md`](product-overview.md) — 产品概述（整个产品做什么 / 核心差异 / 价值，持久参考）
 - [`domain-glossary.md`](domain-glossary.md) — 领域术语表（术语 ↔ 代码映射，防 AI 理解跑偏）
 
 ## 可生长的类型（按需建立）
