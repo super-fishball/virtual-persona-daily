@@ -1,0 +1,20 @@
+# CODEOWNERS — 指定各路径的必须审批人
+# 语法：<路径匹配>  <@负责人...>
+# PR 触及对应路径时，GitHub 自动将负责人加为必须审批人。
+
+# 根级规则与上下文（全局，无单一主人、集体共有 → 指定为「组/团队」而非单人；变更须涉及方共同把关）
+# /rules/        @TODO-team
+# /context/      @TODO-team
+# /CLAUDE.md     @TODO-team
+
+# 专人专项：各子项目归对应负责人
+# /apps/web/        @TODO-frontend
+# /apps/admin/      @TODO-frontend
+# /servers/api/     @TODO-backend
+# /servers/worker/  @TODO-backend
+
+# 高影响区可指定更专门的责任域成员（与 rules/high-impact.md 对应）
+# /servers/api/src/auth/      @TODO-security
+# /servers/api/migrations/    @TODO-dba
+
+# TODO（项目接入时填写）：将 @TODO-* 替换为真实 GitHub 账号 / 团队。

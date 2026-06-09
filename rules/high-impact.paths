@@ -1,0 +1,14 @@
+# 单一机读路径源 —— hooks（.claude/hooks/path-guard.sh）/ CI 硬门禁 / 开发中自检 共用一份。
+# 目的：散文 high-impact.md 与机械检查共用同一份路径清单，避免「散文 + 配置」两份漂移。
+#   high-impact.md 只解释 why、指向本文件，不复述路径。
+#
+# 格式：每行一个 shell glob（相对仓库根）；空行与 # 开头忽略。
+# ⚠️ 模板：以下为示例占位，真实项目接入时按实际高影响区增删。
+
+# --- 示例（替换为真实路径）---
+# servers/api/src/auth/**          # 认证 / 鉴权
+# servers/api/src/payment/**       # 支付 / 计费
+# servers/**/migrations/**         # DB 迁移（破坏性变更）
+# **/.env*                         # 密钥 / 凭证（亦属 forbidden 红线）
+# .github/workflows/**             # CI/CD 配置
+# .github/CODEOWNERS               # 审批人配置

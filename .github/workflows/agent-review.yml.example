@@ -1,0 +1,39 @@
+# Agent Review CI — PR 创建/更新时并行触发多 Agent 审查
+# 机制说明见 rules/review-gates.md
+#
+# ⚠️ 本文件以 .example 结尾，GitHub 不会执行它（默认不启用）。
+#    启用方式：补全下方 TODO（SDK 调用 + secrets）后，去掉 .example 后缀改回 agent-review.yml。
+#    在此之前保持失活，避免空跑、假绿勾或 CI 报错。
+
+name: agent-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write   # 允许写 PR comment
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 取全量历史以计算 diff
+      # TODO：安装 Anthropic SDK，读取 PR diff + spec/plan + CLAUDE.md，
+      #       调用 claude-opus / claude-sonnet，将 review 结果发到 PR comment。
+      # 需要 secrets.ANTHROPIC_API_KEY
+
+  codex-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # TODO：安装 OpenAI SDK，读取相同上下文，调用 Codex，
+      #       将 review 结果发到 PR comment。
+      # 需要 secrets.OPENAI_API_KEY
+
+  # TODO（待项目确定）：两 Agent 结论冲突的处理方式。
