@@ -30,7 +30,16 @@
 
 ## 5. 常用命令
 
-<!-- TODO：启动 / 测试 / 构建 / lint / 迁移。 -->
+在 `servers/api/` 下（依赖经根 `pnpm install` 安装；技术栈 Node + TS + Fastify）：
+
+- 启动（开发）：`pnpm dev`（tsx 热重载，默认 `:3000`，`GET /health` → `{"status":"ok"}`）
+- 启动（生产）：`pnpm build && pnpm start`
+- 构建：`pnpm build`（`tsc -p tsconfig.build.json` → `dist/`）
+- 测试：`pnpm test`（`vitest run`，含 `/health` 用例）
+- lint：`pnpm lint`（`eslint .`）
+- typecheck：`pnpm typecheck`（`tsc --noEmit`）
+
+四道门一次跑全部 4 子项目：仓库根目录 `make check`。
 
 ## 6. 读取顺序
 

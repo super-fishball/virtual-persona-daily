@@ -28,12 +28,15 @@
 
 ## 5. 常用命令
 
-<!-- TODO：
-- 启动：
-- 测试：
-- 构建：
-- lint / typecheck：
--->
+在 `apps/web/` 下（依赖经根 `pnpm install` 安装；技术栈 Vite + React + TS）：
+
+- 启动（开发）：`pnpm dev`（默认 `:5173`，渲染 hello 页面）
+- 构建：`pnpm build`（`vite build` → `dist/`）
+- 测试：`pnpm test`（`vitest run`）
+- lint：`pnpm lint`（`eslint .`）
+- typecheck：`pnpm typecheck`（`tsc --noEmit`）
+
+四道门一次跑全部 4 子项目：仓库根目录 `make check`。
 
 ## 6. 读取顺序
 

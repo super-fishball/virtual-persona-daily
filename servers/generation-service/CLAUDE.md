@@ -29,7 +29,16 @@
 
 ## 5. 常用命令
 
-<!-- TODO：启动 / 测试 / 构建 / lint / 类型检查（如 ruff / mypy）。 -->
+在 `servers/generation-service/` 下（uv 管理，Python 3.12；命令封装在本目录 `Makefile`）：
+
+- 安装依赖：`make install`（= `uv sync`）
+- 启动（开发）：`make dev`（uvicorn，默认 `:8000`，`GET /health` → `{"status":"ok"}`）
+- 构建：`make build`（`python -m compileall app`）
+- 测试：`make test`（`pytest`，含 `/health` 用例）
+- lint：`make lint`（`ruff check .`）
+- typecheck：`make typecheck`（`mypy app`）
+
+四道门一次跑全部 4 子项目：仓库根目录 `make check`。
 
 ## 6. 读取顺序
 

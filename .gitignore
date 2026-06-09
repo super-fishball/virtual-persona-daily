@@ -1,0 +1,32 @@
+# --- deps ---
+node_modules/
+**/node_modules/
+.pnpm-store/
+
+# --- python (uv / venv / caches) ---
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- builds ---
+dist/
+**/dist/
+build/
+**/build/
+.vite/
+
+# --- env：真实密钥永不入库；保留占位的 .env.example ---
+.env
+.env.*
+!.env.example
+
+# --- misc ---
+.DS_Store
+*.log
+coverage/
+**/coverage/

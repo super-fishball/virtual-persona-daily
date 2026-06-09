@@ -1,0 +1,13 @@
+{
+  "name": "virtual-persona-daily",
+  "version": "0.0.0",
+  "private": true,
+  "description": "monorepo 根：跨语言质量门入口见 Makefile（make check）",
+  "scripts": {
+    "check": "make check",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck"
+  }
+}

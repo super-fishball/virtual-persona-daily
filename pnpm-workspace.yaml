@@ -1,0 +1,6 @@
+# pnpm workspace —— 仅纳管两个 TS 子项目；Python 子项目各自用 uv。
+packages:
+  - apps/web
+  - servers/api
+allowBuilds:
+  esbuild: true
