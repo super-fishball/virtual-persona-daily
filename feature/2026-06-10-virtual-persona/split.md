@@ -74,8 +74,18 @@ F2 契约①②③（已落，validate 绿）
 
 ---
 
-## 4. 关联
+## 4. F4 评审落地（接受 / 记录项，不改契约结构）
 
+> 完整纪要见 [`f4-review.md`](f4-review.md)。下列为裁决"接受现状 / 仅记录"的项，实施时须照此：
+
+- **W-3（web）**：`location` 为 required，**定位被拒 = 无法创建**，A1 无手动选城兜底（合"真实浏览器定位"）；前端授权 UX 须明确告知"需定位方可创建"。
+- **A-2（api）**：home Place 的 `type` 取**固定常量 `"home"`**（api 侧常量，非发明领域语义）；api 落库时把 gen 返回的 `home: Coordinate` 建成 home-type Place、`placeRef` 解析为真实 `placeId`。
+- **G-1（gen，关键路径）**：api↔gen 同步 `/generate` 串高德逆地理 + 高德 POI + LLM，**时延偏高**；超时阈值留实现层定。**A1 重试非幂等、会重复消耗高德/LLM 配额**——已知取舍，幂等键见 [`spec.md` §10](spec.md)。
+- **G-2（gen，乙·保留）**：A1 诞生事件落 home，高德 POI 检索的"1 休闲 place"**A1 暂不被事件引用**；**仍保留**——理由：穿透高德 POI 契约路径（dogfood 价值）+ 后续刀立即要用、免返工。
+
+## 5. 关联
+
+- F4 评审纪要：[`f4-review.md`](f4-review.md)
 - 总 spec + 设计理由：[`spec.md`](spec.md)
 - 需求定稿：[`requirement.md`](requirement.md)
 - 端到端验收细化：`acceptance.md`（待建，随各子项目 ①–⑦ 落地）

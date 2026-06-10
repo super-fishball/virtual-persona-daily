@@ -32,6 +32,9 @@ paths:
         gateway 把 systemInstruction 映射为系统指令、personality 作为数据槽内容、
         realTime 作为现实时间上下文，调 DeepSeek；对返回文本施加通用横切 guardrail
         后返回。guardrail 命中不安全/注入回显时以 422 拒绝。
+        F4·GW-1（守"薄"硬约束）：① guardrail 为 **block-only**——命中即 422，
+        **不做静默改写/脱敏**（改写=篡改业务产出）；② 上述字段→角色为**固定机械映射**，
+        gateway **不按内容做分支判断**（详见 spec §6.4）。
       requestBody:
         required: true
         content:
