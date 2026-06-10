@@ -80,4 +80,32 @@ plan 结构齐（6 文件 / 7 TDD 任务 / 验收对照表），机械映射、b
 
 ---
 
-> 评审性质：AI（换 gen 消费方帽 + 安全镜头）独立审，**非 owner 自放行**；仅供评审参考，**不替代人工评审，AI 永不作为合并门禁**。
+---
+
+## 6. 复审（rev2 · 同 gen 消费方帽 + 安全镜头，独立再审）
+
+> 对象：rev2（契约③ v0.1.1-a1 + plan rev2，commit `4649fb8`/`45c4175`）。逐条核 C1–C4 是否**真修**、新错误码是否被契约测试覆盖。仍真审，不橡皮图章。
+
+| 项 | 复审结论 | 证据 |
+|---|---|---|
+| **C1** | ✅ **真修** | 契约③ 加 `400 invalid_request`（与 422 分离），`RequestValidationError→400` handler 覆盖 FastAPI 默认 422；`test_complete_invalid_request_returns_400` 断言 `keys=={code,message}` 且 `code==invalid_request`。gen 现可按单一 Error 体接住，且 400/422 语义分明。 |
+| **C2** | ✅ **真修** | `prompt_leak` 改 `_leaks_fragment`（连续 ≥16 字滑窗）；测试**只回显 16 字片段**并 `assert _SYSTEM not in leaked`——整条匹配的旧实现会**挂**此测试，故测试不再与实现互相迁就。 |
+| **C3** | ✅ **响应面真修**（日志面见下残留） | catch-all `Exception→500`，message 固定常量；`test_complete_unexpected_error_returns_500_without_leak` 用 `raise_server_exceptions=False` 断言 `secret not in resp.text`。 |
+| **C4** | ✅ **真修** | 单次超时 15s、最坏 ≈30s，写进契约③ 描述并给 gen「超时 >30s、不叠加重试」指引；plan 取值表同步。 |
+| **M1** | ✅ | 400/422/500/502 各用例均加 `set(keys)=={code,message}`。 |
+| 新错误码覆盖 | ✅ | 400（C1 测试）/ 500（C3 测试）/ 422（guardrail ×3 + 体形状）/ 502（体形状）均有契约/路由测试。 |
+
+**回归确认**：happy-path systemInstruction 16 字、benign 输出无 16 字重叠 → 片段检测不误伤，仍 200（plan Task5 Step5 跑 complete+guardrail 共 7 绿覆盖）。
+
+### 残留（接受 / 记一笔，非阻断）
+
+- **R1〔C3 日志面〕**：catch-all 已净化**响应体**，但 Starlette `ServerErrorMiddleware` 对未处理异常仍会**重抛供服务端记日志**。生产无泄漏依赖两点：① **我方代码不把 body 塞进异常 message**（deepseek 仅存 `type(exc).__name__`，mapping/guardrail 不夹带；已列 Task6 Step1 审计）；② 默认 Python traceback **不打印局部变量值**。二者成立则日志不泄漏 prompt/personality。**已落实**：plan Task6 Step1 增「我方代码无异常 message 夹带 body + uvicorn 不启用 locals/body 记录」确认 + 一条 grep 自检（C3 测试里异常 message 含 secret 仅为验响应净化，**不**代表生产异常会带 body）。
+- **R2〔C2 阈值〕**：16 字滑窗对**逐字片段**有效；**改写/翻译/分段**泄漏仍漏——属 spec §5.1「denylist 级、不引检测模型」的刻意边界，A1 接受。误杀（系统指令含某 16 字恰现于正常输出）概率低，denylist/阈值后续刀可调。
+
+### 复审裁定
+
+**C1–C4 + M1 实质修复，新错误码契约测试覆盖齐**；R1 已在 plan Task6 落实日志前提确认，R2 为 spec 刻意边界（接受）。**无阻断项，可进 ④。仍由人裁是否放行。**
+
+---
+
+> 评审性质：AI（换 gen 消费方帽 + 安全镜头）独立审 + 复审，**非 owner 自放行**；仅供评审参考，**不替代人工评审，AI 永不作为合并门禁**。
