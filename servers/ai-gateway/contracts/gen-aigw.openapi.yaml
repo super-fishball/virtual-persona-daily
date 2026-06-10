@@ -1,0 +1,105 @@
+openapi: 3.1.0
+
+# ============================================================================
+# 契约③ generation-service ↔ ai-gateway（内部契约）
+# 提供方 = servers/ai-gateway（消费方 = servers/generation-service）
+# 范围 = F1 首刀 A1，仅首刀字段；与 feature 总 spec §2 主链 / §5.1 / §6.4 一致。
+# 关键设定（spec §6.4）：ai-gateway = 薄代理 + 横切。本契约把「系统指令」与
+#   「性格(数据槽)」作为**分立字段**传输，保持「指令 vs 用户数据」物理分离；
+#   gateway 仅做协议适配 + 通用横切 guardrail（输出审核第三层），**不解析业务字段**。
+# A1 不含：多家 provider / fallback、预算上限、精细限流。
+# ============================================================================
+
+info:
+  title: generation-service ↔ ai-gateway 契约（A1 首刀）
+  version: 0.1.0-a1
+  description: |
+    servers/generation-service（消费方）经 servers/ai-gateway（提供方，唯一 LLM 入口）
+    调用单家 LLM（DeepSeek）做补全。gateway 持有 LLM key、协议适配、超时/重试，
+    并对输出施加通用横切 guardrail（注入回显 / 泄漏 prompt / 不安全内容过滤）后返回。
+
+servers:
+  - url: /
+    description: servers/ai-gateway（默认 :8001）
+
+paths:
+  /v1/complete:
+    post:
+      operationId: complete
+      summary: LLM 补全（输出经横切 guardrail）
+      description: |
+        对应主链「gen→ai-gateway（内部：LLM 调用）」。
+        gateway 把 systemInstruction 映射为系统指令、personality 作为数据槽内容、
+        realTime 作为现实时间上下文，调 DeepSeek；对返回文本施加通用横切 guardrail
+        后返回。guardrail 命中不安全/注入回显时以 422 拒绝。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompletionRequest'
+      responses:
+        '200':
+          description: 补全文本（已过输出横切 guardrail）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletionResponse'
+        '422':
+          description: 输出横切 guardrail 拦截（注入回显 / 泄漏 prompt / 不安全内容）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: 上游 LLM（DeepSeek）不可用 / 超时（重试后仍失败）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+
+    CompletionRequest:
+      type: object
+      additionalProperties: false
+      required: [systemInstruction, personality, realTime]
+      properties:
+        systemInstruction:
+          type: string
+          minLength: 1
+          description: |
+            系统指令（由 gen 构建）。指令文本，**不含用户数据**——
+            用户性格不拼进此字段，单独走 personality 数据槽。
+        personality:
+          type: string
+          maxLength: 4000
+          description: |
+            性格（数据槽）。作为**数据**传输，与 systemInstruction 物理分离；
+            gateway 将其置入数据/用户消息，不并入指令。maxLength 仅为稳定性横切
+            （防超大 payload），非业务录入审核（录入审核在 api/gen）。
+        realTime:
+          type: string
+          format: date-time
+          description: 现实时间锚点（设定城市时区），作为生成上下文。
+
+    CompletionResponse:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: LLM 生成文本，已通过输出横切 guardrail。
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 机读错误码（如 guardrail_blocked / upstream_unavailable）。
+        message:
+          type: string
