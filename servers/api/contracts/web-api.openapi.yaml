@@ -1,0 +1,224 @@
+openapi: 3.1.0
+
+# ============================================================================
+# 契约① web ↔ api（对外契约）
+# 提供方 = servers/api（消费方 = apps/web）
+# 范围 = F1 首刀 A1，仅首刀字段；与 feature 总 spec §2 主链 / §4 数据模型一致。
+# 权威源：本文件即机读权威，feature/ 只放指针（见 feature/.../split.md）。
+# A1 不含：地图轨迹(U3)、"此刻"(U2)、历史 3 天(U4)、在途/状态机/真实情境。
+# ============================================================================
+
+info:
+  title: web ↔ api 契约（A1 首刀）
+  version: 0.1.0-a1
+  description: |
+    apps/web（消费方）调用 servers/api（提供方）的对外 REST 契约。
+    覆盖 A1 两个交互：创建虚拟人（含同步诞生事件）、当天时间线列表。
+
+servers:
+  - url: /
+    description: servers/api（默认 :3000）
+
+paths:
+  /personas:
+    post:
+      operationId: createPersona
+      summary: 创建虚拟人（同步落地 + 生成诞生事件）
+      description: |
+        对应主链「web→api（写：创建）」。api 收性格文本 + 精确坐标，
+        先做录入审核（注入面首道把关），再转交 generation-service 落地与单次生成，
+        最终 api 落库 Persona/Place/Event 并返回 persona + 诞生事件。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePersonaRequest'
+      responses:
+        '201':
+          description: 创建成功，返回 persona 与同步生成的诞生事件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePersonaResponse'
+        '400':
+          description: 录入审核拒绝（性格文本命中注入特征/越界）或请求结构非法
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /personas/{personaId}/timeline:
+    get:
+      operationId: getTimeline
+      summary: 当天时间线（有序事件列表）
+      description: |
+        对应主链「web←api（读：时间线）」。返回该虚拟人当天（按设定城市时区的自然日）
+        的有序事件序列。A1 不做自链，列表通常仅含诞生事件一条；列表是机制、适配 N 条。
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 当天有序事件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+        '404':
+          description: persona 不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+
+    Coordinate:
+      type: object
+      additionalProperties: false
+      required: [lng, lat]
+      properties:
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+
+    CreatePersonaRequest:
+      type: object
+      additionalProperties: false
+      required: [personality, location]
+      properties:
+        personality:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: |
+            用户指定的性格文本。注入面：api 在此入口做录入审核（结构/长度 + 最小注入特征 denylist）。
+            下游一律当「数据」处理，不拼进 prompt 指令。
+        location:
+          $ref: '#/components/schemas/Coordinate'
+          description: |
+            浏览器精确定位坐标。PII / 瞬态：仅用于下游逆地理取城市，
+            取得城市后即丢弃；**不落库、不入日志、不入 query**，只在请求体内透传一程。
+          x-pii: true
+          x-transient: true
+
+    Persona:
+      type: object
+      additionalProperties: false
+      required: [id, ownerUserId, personality, city, home]
+      properties:
+        id:
+          type: string
+        ownerUserId:
+          type: string
+        personality:
+          type: string
+        city:
+          type: string
+          description: 由 generation-service 逆地理编码得到的设定城市（落库最细地理粒度）。
+        home:
+          $ref: '#/components/schemas/Coordinate'
+          description: home 锚点坐标 = 城市代表点（**非用户真实住址**，不来自精确定位）。
+
+    Place:
+      type: object
+      additionalProperties: false
+      required: [id, personaId, type, coordinate]
+      properties:
+        id:
+          type: string
+        personaId:
+          type: string
+        type:
+          type: string
+          description: |
+            地点类型。`home` = 城市代表点锚点；其余为休闲点（如 咖啡馆 / 公园 / 书店…）。
+        coordinate:
+          $ref: '#/components/schemas/Coordinate'
+
+    Event:
+      type: object
+      additionalProperties: false
+      required: [id, personaId, start, end, placeId, content, statusTag]
+      properties:
+        id:
+          type: string
+        personaId:
+          type: string
+        start:
+          type: string
+          format: date-time
+          description: 事件开始的现实时刻（设定城市时区）。
+        end:
+          type: string
+          format: date-time
+          description: 事件结束时刻（生成产出 + 合理性钳制）。
+        placeId:
+          type: string
+          description: |
+            事件所在地点 id（指向 api 落库的 Place）。前端按响应中的 `places[]`
+            解析 placeId → Place 以渲染「地点」（Event 保持 normalized，不冗余地点字段）。
+        content:
+          type: string
+          description: 事件内容文本（在做什么）。
+        statusTag:
+          type: string
+          description: |
+            状态标签（如 在家 / 外出 / 休闲…）。A1 为自由文本标签，
+            **不引状态机转移矩阵**（属后续刀）。
+
+    CreatePersonaResponse:
+      type: object
+      additionalProperties: false
+      required: [persona, places, birthEvent]
+      properties:
+        persona:
+          $ref: '#/components/schemas/Persona'
+        places:
+          type: array
+          description: |
+            该 persona 的地点集（A1 = home + 1 休闲 place）。供前端按 `Event.placeId`
+            解析渲染「地点」。（F4·W-1：原 {persona, birthEvent} 无法解析 placeId，补此。）
+          items:
+            $ref: '#/components/schemas/Place'
+        birthEvent:
+          $ref: '#/components/schemas/Event'
+          description: 创建时同步生成的首个「诞生」事件（含 end）。
+
+    TimelineResponse:
+      type: object
+      additionalProperties: false
+      required: [events, places]
+      properties:
+        events:
+          type: array
+          description: 当天有序事件（按 start 升序）。
+          items:
+            $ref: '#/components/schemas/Event'
+        places:
+          type: array
+          description: |
+            事件涉及的地点集，供前端按 `Event.placeId` 解析渲染「地点」（F4·W-1）。
+          items:
+            $ref: '#/components/schemas/Place'
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 机读错误码（如 personality_rejected / validation_error / not_found）。
+        message:
+          type: string

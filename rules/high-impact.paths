@@ -18,15 +18,19 @@
 #   [P0] 用户性格 → LLM prompt 注入面（prompt 构建 / 录入审核）
 #   [P0] 高德 key 的使用面
 #   [一致性] 事件写入：并发自链幂等、Event 不可变
-# 骨架期标全目录；首刀后收窄到 prompt 构建 / 录入审核 / 事件写入 等具体模块。
-servers/generation-service/**
+# F2 收窄：收口代码目录 app/**（prompt 构建 / 录入审核复核 / 高德 key 使用面 / 事件写入均在此）。
+# 不收口 contracts/**——那是声明式契约 schema（F2 产物），走「跨子项目契约」评审路径
+# （review-gates 升级评审 + CODEOWNERS），非本 P0 敏感代码收口意图。
+servers/generation-service/app/**
 
 # ── ai-gateway ── 收口三件高影响：
 #   [P0] 性格 → prompt 注入面的「输出审核」侧
 #   [P0] LLM 密钥集中持有
 #   [成本] LLM 成本 / 限流 / 重试 / fallback 统一兜底
-# 骨架期标全目录；首刀后收窄到 provider 适配 / guardrails / 限流 等具体模块。
-servers/ai-gateway/**
+# F2 收窄：收口代码目录 app/**（provider 适配 / 输出 guardrails / LLM 密钥持有 / 限流均在此）。
+# 不收口 contracts/**——声明式契约 schema（F2 产物），走「跨子项目契约」评审路径，
+# 非本 P0 敏感代码收口意图。
+servers/ai-gateway/app/**
 
 # ── [P0] servers/api ── 用户性格「录入审核」面（§11 首道注入防御）：
 # persona 创建 / 录入校验先在 api 把关，再下传 gen 当数据拼 prompt。

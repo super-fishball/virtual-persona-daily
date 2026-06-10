@@ -82,6 +82,13 @@
 - **现状（观察 / 部分回流）**：与设计自陈一致——权威必须落 ⑥ PR 门禁，**勿把 task.env 当权威开关**。其中 **python3 缺失 fails-open 属回流-worthy**（取值层应 fail-closed：无解释器 → exit 2 / 显式报错）；`check-completion` 实现待 F1 acceptance 落地后再做。
 
 
+### B12. whole-dir 高影响过粗：F2 落声明式 contract schema 被误拦（粒度未分"敏感代码 vs 声明式契约"）
+
+- **现象**：F2 写契约 schema 时，`servers/generation-service/contracts/api-gen.openapi.yaml` 与 `servers/ai-gateway/contracts/gen-aigw.openapi.yaml` 被 path-guard 拦（exit=2）。根因：[`rules/high-impact.paths`](../../../rules/high-impact.paths) 骨架期把两个 provider 子项目按 `servers/<provider>/**` **全目录**收口（自注"骨架期标全目录；首刀后收窄到具体模块"），`*` 跨 `/` → 连 `contracts/` 下的**声明式契约 schema** 一并命中。
+- **影响（low）**：守卫本身**行为正确**（跨子项目契约本就是高影响类目，拦下来让人看并无错）——但**粒度过粗**：把"P0 敏感代码"（prompt 构建 / key 使用 / guardrail / 事件写入）与"声明式契约 schema"混为一谈。契约 schema 恰恰**该**走「跨子项目契约」评审路径（review-gates 升级评审 + CODEOWNERS），而非 P0 敏感代码收口；二者评审责任域、节奏不同，混收口会在每次契约演化时误触 P0 暂停。非 [[A1]]/[[B6]]/[[B7]] 的守卫完整性问题（那些是"该拦没拦"），这是"**拦对了类目、但粒度该再分**"。
+- **现状（已本地收窄 + 回流候选）**：本 repo 已把两条全目录收口收窄到代码目录 `servers/<provider>/app/**`（prompt/key/guardrail/事件写入均在此，**仍高影响**），并显式注明 `contracts/**` 不收口、走契约评审路径；收窄后契约 schema 写入放行、敏感代码仍拦。**回流候选**：团队模板的"本项目高影响区"约定应**从一开始就区分「敏感代码（按 module 收口）vs 声明式契约（走契约评审）」**，避免骨架期 whole-dir 占位在 F2 契约落地时普遍误拦——这是"两层开发/契约先行"在治理粒度上的必然交点。出处见 [`feature/2026-06-10-virtual-persona/spec.md`](../../../feature/2026-06-10-virtual-persona/spec.md)（F2 契约阶段）。
+
+
 ---
 
 ## 备注

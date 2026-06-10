@@ -1,0 +1,161 @@
+openapi: 3.1.0
+
+# ============================================================================
+# 契约② api ↔ generation-service（内部契约）
+# 提供方 = servers/generation-service（消费方 = servers/api）
+# 范围 = F1 首刀 A1，仅首刀字段；与 feature 总 spec §2 主链 / §4 数据模型 / §6.5 一致。
+# 关键设定（spec §6.5）：generation-service 无状态、本期无存储——只返回 payload，
+#   由 servers/api 落库（id 由 api 铸造）。故本契约的返回体不含 DB id。
+# A1 不含：在途/移动事件、状态机转移、真实情境（天气/POI 营业时间）。
+# ============================================================================
+
+info:
+  title: api ↔ generation-service 契约（A1 首刀）
+  version: 0.1.0-a1
+  description: |
+    servers/api（消费方）调用 servers/generation-service（提供方）的内部 HTTP 契约。
+    一次调用完成「落地计算 + 单次生成」：逆地理取城市、落 home/place 坐标、
+    经 ai-gateway 调 LLM 生成诞生事件 payload（含 end）。
+
+servers:
+  - url: /
+    description: servers/generation-service（默认 :8000）
+
+paths:
+  /generate:
+    post:
+      operationId: generateBirth
+      summary: 落地计算 + 单次生成诞生事件（无状态，返回 payload）
+      description: |
+        对应主链「api→gen（内部：落地+单次生成）」。
+        gen 内部：① 复核性格（录入审核第二道）；② 高德逆地理(精确坐标)→城市，**精确坐标随即丢弃**；
+        ③ home=城市代表点、place=高德 POI 检索；④ 性格当数据构建 prompt（不拼指令）；
+        ⑤ 经 ai-gateway 调 LLM 得诞生事件文本。返回结构化 payload，由 api 落库。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateRequest'
+      responses:
+        '200':
+          description: 落地与生成结果 payload（不含 DB id，待 api 落库铸造）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateResponse'
+        '400':
+          description: 性格复核拒绝（注入特征）或请求结构非法
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: 下游不可用（高德逆地理/POI 或 ai-gateway 失败）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+
+    Coordinate:
+      type: object
+      additionalProperties: false
+      required: [lng, lat]
+      properties:
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+
+    GenerateRequest:
+      type: object
+      additionalProperties: false
+      required: [personality, location]
+      properties:
+        personality:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: |
+            性格文本。作为「数据」传入；gen 在生成前做录入审核第二道复核（纵深防御），
+            并在构建 prompt 时走数据槽、不拼进指令文本。
+        location:
+          $ref: '#/components/schemas/Coordinate'
+          description: |
+            精确坐标。PII / 瞬态：唯一用途 = 逆地理取城市，用后即丢弃；
+            **不落库、不入日志**，仅在本次请求内透传。
+          x-pii: true
+          x-transient: true
+
+    PlacePayload:
+      type: object
+      additionalProperties: false
+      required: [type, coordinate]
+      properties:
+        type:
+          type: string
+          description: 地点类型（A1 休闲点，如 咖啡馆/公园/书店…）。
+        coordinate:
+          $ref: '#/components/schemas/Coordinate'
+          description: 高德 POI 检索得到的真实坐标。
+
+    EventPayload:
+      type: object
+      additionalProperties: false
+      required: [start, end, placeRef, content, statusTag]
+      properties:
+        start:
+          type: string
+          format: date-time
+          description: 诞生事件开始时刻（从「此刻」起链，设定城市时区）。
+        end:
+          type: string
+          format: date-time
+          description: 结束时刻（生成产出 + 合理性钳制；A1 不引状态机）。
+        placeRef:
+          type: string
+          enum: [home, place]
+          description: |
+            逻辑地点引用（非 DB id）。gen 无存储、不铸 id，
+            用 home/place 逻辑键指明事件落点，由 api 落库时解析为真实 placeId。
+        content:
+          type: string
+          description: 诞生事件内容文本（如「刚来到这座城市」）。
+        statusTag:
+          type: string
+          description: 状态标签（自由文本，A1 不引状态机转移矩阵）。
+
+    GenerateResponse:
+      type: object
+      additionalProperties: false
+      required: [city, home, place, birthEvent]
+      properties:
+        city:
+          type: string
+          description: 逆地理编码得到的设定城市。
+        home:
+          $ref: '#/components/schemas/Coordinate'
+          description: home 坐标 = 城市代表点（不依赖用户精确位置）。
+        place:
+          $ref: '#/components/schemas/PlacePayload'
+          description: A1 的 1 个休闲 place（高德 POI）。
+        birthEvent:
+          $ref: '#/components/schemas/EventPayload'
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 机读错误码（如 personality_rejected / upstream_unavailable）。
+        message:
+          type: string
