@@ -148,21 +148,35 @@ plan 结构齐（6 文件 / 7 TDD 任务 / 验收对照表），机械映射、b
 | code M-3(注解) + sec | minor | 测试 fake `transport` 注解 `BaseTransport` ≠ 实参 `AsyncBaseTransport` | **采纳**（F3）：对齐测试 fake 注解。 |
 | code NIT | nit | 测试用字面量 `2` 而非 `MAX_RETRIES+1` | **采纳**（F6）：自文档化。 |
 | **code M-6** | minor | 「测试注释说 ServerErrorMiddleware 重抛」**不准确**，建议改注释 | **驳回（附证据）**：核 Starlette `applications.py:63-64,69`——`Exception`/500 handler 进 **ServerErrorMiddleware**（非 ExceptionMiddleware）；`errors.py:186` 处理后 **`raise exc` 重抛**。**注释准确**，按建议改反而引错。佐证：500 测试需 `raise_server_exceptions=False` 而 422/502 不需，正证此分流。**security-reviewer 独立核实同我**。 |
-| **sec MED（DoS）** | medium | `systemInstruction` **无 `max_length`** + `_leaks_fragment` O(n×m) → 多 MB 指令阻塞 asyncio 事件循环（实测 1MB≈3.5s） | **上交牵头人裁**（S1）：建议**契约③ 再演化**给 `systemInstruction` 加 `maxLength`（稳定性横切，对齐 `personality` 既有 4000 上限的同款理由）。**触冻结契约 → 需授权**（同此前 v0.1.1 演化路径）。A1 为**内部服务**（仅 gen 调）、外部攻击面无 → 风险偏低，可现在加 / 记后续刀。 |
+| **sec MED（DoS）** | medium | `systemInstruction` **无 `max_length`** + `_leaks_fragment` O(n×m) → 多 MB 指令阻塞 asyncio 事件循环（实测 1MB≈3.5s） | **牵头人裁定：记后续刀**（S1）。A1 内部服务（仅 gen 调）、无外部攻击面 → **本刀接受**；**下刀**给 `systemInstruction` 加 `maxLength`（稳定性横切，对齐 `personality` 4000 上限同款理由），与限流/预算刀一并落。已记 [`split.md` §1](../../../feature/2026-06-10-virtual-persona/split.md) 后续刀候选。 |
 | sec INFO | info | `UpstreamUnavailable("missing DEEPSEEK_API_KEY")` 暴露 key **缺失**（非值） | **接受·不改**：不泄 key 值；由 ExceptionMiddleware 处理、不重抛入日志。记一笔。 |
 
 **两 agent 共识的正面确认**（已逐条复核）：机械映射指令/数据分离正确；重试循环 `range(MAX_RETRIES+1)` 无 off-by-one、4xx 即拒/5xx 重试/退避只在尝试间；异常 handler 无 shadowing（具体类型先于 catch-all）；四类错误体均**固定常量**无内插；`str.format()` 无格式串注入；**无 SSRF**（base_url 来自 env 非用户输入、path 硬编码、用户数据只进 JSON body）；block-only 无改写。
 
-### 7.5 是否需要人工确认
+### 7.5 牵头人裁决（已定）
 
-**需要。** 两点要你裁：
-1. **S1（DoS/maxLength）**：是否现在演化契约③ 给 `systemInstruction` 加 `maxLength`（触冻结契约、需授权），还是记后续刀（A1 内部服务，接受）。
-2. **F1–F6 是否现在落**：均小而清晰、无契约影响、纯增稳健性/一致性/覆盖；但改 `app/` 会再触发 **path-guard 高影响暂停**（已恢复）。
+1. **S1（DoS/maxLength）**：**记后续刀**（A1 内部服务接受，下刀加 `systemInstruction` maxLength；已记 split.md §1 + 本表）。
+2. **F1–F6**：**现在全落**（path-guard 临时关，正常 Write + TDD）。落地结果见 §7.7。
 
 ### 7.6 下一步建议
 
-- 0 阻断（两 agent 均无 blocking）。实现对契约/spec/plan **conformant**，可进 PR 前的最后裁决。
-- 建议：先落 **F4**（修畸形上游语义 502 + 闭合日志向量，价值最高）与 **F1–F3/F5/F6**（小修），再就 **S1** 取你的契约裁决；其后才谈 PR。
+- 0 阻断（两 agent 均无 blocking）。实现对契约/spec/plan **conformant**。
+- F1–F6 落地 + 四道门/security 重验全绿后，即可进 PR 前最终裁决。
 - 仍由人裁是否放行 PR。**AI 永不作为合并门禁。**
+
+### 7.7 F1–F6 落地结果
+
+> 逐条 TDD（补/改测试 → 改实现 → 绿 → commit）。落地后四道门 + security 重验结果附末。
+
+| 编号 | 落地 | commit |
+|---|---|---|
+| F1 | 补 5xx→502 重试测试（断言 `MAX_RETRIES+1` 次尝试） | `2a3e154` |
+| F2 | `DEEPSEEK_BASE_URL` 改 per-call 读 + 自定义 host 测试 | `2a3e154` |
+| F4 | 畸形上游体 → `UpstreamUnavailable("malformed upstream response")` → 502 + 测试 | `2a3e154` |
+| F6 | 测试以 `deepseek.MAX_RETRIES+1` 自文档化 | `2a3e154` |
+| F5 | guardrail 片段/unsafe/注入 统一 `casefold`（大小写不敏感）+ 英文异写测试 | `1e2572d` |
+| F3 | 测试 fake `transport` 注解对齐 `AsyncBaseTransport` | `1e2572d` / `fcd746f` |
+
+**落地后重验（全绿）**：四道门 `pytest 20 passed`（+4 新测试）· `ruff clean` · `mypy Success(8 files)` · `build OK`；security `bandit 0 issue(160 行)` · `pip-audit 无漏洞` · 无硬编码 key · 异常 message 不夹带 body。每条 TDD 先红后绿（F2/F4/F5 已验失败再实现；F1/F6 为既有行为覆盖回填）。
 
 > 评审性质（⑦）：两 agent 独立审 + 我 receiving-code-review 核验应对（驳回 1 条无据建议、上交 1 条契约决策）；仅供参考，**不替代人工评审**。
