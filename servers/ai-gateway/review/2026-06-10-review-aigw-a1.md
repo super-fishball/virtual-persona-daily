@@ -109,3 +109,60 @@ plan 结构齐（6 文件 / 7 TDD 任务 / 验收对照表），机械映射、b
 ---
 
 > 评审性质：AI（换 gen 消费方帽 + 安全镜头）独立审 + 复审，**非 owner 自放行**；仅供评审参考，**不替代人工评审，AI 永不作为合并门禁**。
+
+---
+
+## 7. ⑦ 代码评审报告（PR 前自检 · 实现已落 ④ TDD）
+
+> 对象：`feat/ai-gateway-a1` 的实现 diff（`main..HEAD`，`servers/ai-gateway/app` + `tests`）。
+> 方法：派 **code-reviewer + security-reviewer** 两 agent 独立审（安全镜头重点），并用 receiving-code-review **逐条核验后应对**（不橡皮章、不无据照改）。**不进 PR。**
+
+### 7.1 ⑥ 门禁结果（security 必过）
+
+| 门 | 结果 |
+|---|---|
+| 四道门 | `pytest 16 passed` · `ruff clean` · `mypy Success(8 files)` · `build OK` |
+| 密钥未进 git | ✅ 历史 diff 无真实 key；仅 `.env.example` 占位被跟踪；`.env` 已 gitignore |
+| 依赖 CVE（pip-audit） | ✅ **No known vulnerabilities found** |
+| SAST（bandit -r app） | ✅ **No issues identified**（154 行，0 skip） |
+
+### 7.2 已审文件
+
+`app/{models,mapping,deepseek,guardrail,service,main,errors}.py` + `tests/test_{models,mapping,deepseek,complete,guardrail}.py`。
+
+### 7.3 风险点分类（review/README 必填）
+
+- **越界**：无——改动全在 `servers/ai-gateway/`（+ 已授权 `feature/split.md`、`docs/gaps.md`）；未碰 apps/* 或其他 servers/*。
+- **高影响**：key 持有 + guardrail（本服务固有）。两 agent 均确认：key 仅 env、不入日志/异常/响应；block-only 无改写路径；指令/数据物理分离。守住。
+- **禁止项**：无硬编码凭证、无业务逻辑堆叠、未扩多家 provider、日志无 prompt/响应。
+- **无据**：无——每项实现可溯 spec/plan/契约③。
+
+### 7.4 两 agent 发现 × 我的应对（逐条核验）
+
+| 来源 | 级别 | 发现 | 我的应对（核验后） |
+|---|---|---|---|
+| code I-1 | important | 上游 **5xx 重试路径无测试**（仅测了 timeout 重试） | **采纳**（F1）：补 1 条 `500×N→UpstreamUnavailable`、断言 2 次尝试。 |
+| code I-2 | important | `_BASE_URL` import 期读取、不可 per-call/patch（与 key per-call 不一致） | **采纳**（F2）：`DEEPSEEK_BASE_URL` 改函数内 per-call 读。 |
+| code M-5 + **sec MED** | minor/medium | 上游 2xx 体畸形 → `resp.json()`/`KeyError`/`IndexError` **未捕** → 500 + ServerErrorMiddleware **重抛入 uvicorn 日志** | **采纳**（F4）：包 `try/except (ValueError,KeyError,IndexError)` → `UpstreamUnavailable("malformed upstream response")` → **502**。一并修「畸形上游语义该 502 非 500」+ 闭合日志残留向量（R1）。 |
+| code M-4 + **sec LOW×2** | minor/low | guardrail 片段/unsafe 检测**大小写敏感**，与注入回显（`.lower()`）不一致 → 英文异写可绕 | **采纳**（F5）：片段 + unsafe 统一 casefold（中文 no-op，现有测试不动；补 1 条英文异写→422）。 |
+| code M-3(注解) + sec | minor | 测试 fake `transport` 注解 `BaseTransport` ≠ 实参 `AsyncBaseTransport` | **采纳**（F3）：对齐测试 fake 注解。 |
+| code NIT | nit | 测试用字面量 `2` 而非 `MAX_RETRIES+1` | **采纳**（F6）：自文档化。 |
+| **code M-6** | minor | 「测试注释说 ServerErrorMiddleware 重抛」**不准确**，建议改注释 | **驳回（附证据）**：核 Starlette `applications.py:63-64,69`——`Exception`/500 handler 进 **ServerErrorMiddleware**（非 ExceptionMiddleware）；`errors.py:186` 处理后 **`raise exc` 重抛**。**注释准确**，按建议改反而引错。佐证：500 测试需 `raise_server_exceptions=False` 而 422/502 不需，正证此分流。**security-reviewer 独立核实同我**。 |
+| **sec MED（DoS）** | medium | `systemInstruction` **无 `max_length`** + `_leaks_fragment` O(n×m) → 多 MB 指令阻塞 asyncio 事件循环（实测 1MB≈3.5s） | **上交牵头人裁**（S1）：建议**契约③ 再演化**给 `systemInstruction` 加 `maxLength`（稳定性横切，对齐 `personality` 既有 4000 上限的同款理由）。**触冻结契约 → 需授权**（同此前 v0.1.1 演化路径）。A1 为**内部服务**（仅 gen 调）、外部攻击面无 → 风险偏低，可现在加 / 记后续刀。 |
+| sec INFO | info | `UpstreamUnavailable("missing DEEPSEEK_API_KEY")` 暴露 key **缺失**（非值） | **接受·不改**：不泄 key 值；由 ExceptionMiddleware 处理、不重抛入日志。记一笔。 |
+
+**两 agent 共识的正面确认**（已逐条复核）：机械映射指令/数据分离正确；重试循环 `range(MAX_RETRIES+1)` 无 off-by-one、4xx 即拒/5xx 重试/退避只在尝试间；异常 handler 无 shadowing（具体类型先于 catch-all）；四类错误体均**固定常量**无内插；`str.format()` 无格式串注入；**无 SSRF**（base_url 来自 env 非用户输入、path 硬编码、用户数据只进 JSON body）；block-only 无改写。
+
+### 7.5 是否需要人工确认
+
+**需要。** 两点要你裁：
+1. **S1（DoS/maxLength）**：是否现在演化契约③ 给 `systemInstruction` 加 `maxLength`（触冻结契约、需授权），还是记后续刀（A1 内部服务，接受）。
+2. **F1–F6 是否现在落**：均小而清晰、无契约影响、纯增稳健性/一致性/覆盖；但改 `app/` 会再触发 **path-guard 高影响暂停**（已恢复）。
+
+### 7.6 下一步建议
+
+- 0 阻断（两 agent 均无 blocking）。实现对契约/spec/plan **conformant**，可进 PR 前的最后裁决。
+- 建议：先落 **F4**（修畸形上游语义 502 + 闭合日志向量，价值最高）与 **F1–F3/F5/F6**（小修），再就 **S1** 取你的契约裁决；其后才谈 PR。
+- 仍由人裁是否放行 PR。**AI 永不作为合并门禁。**
+
+> 评审性质（⑦）：两 agent 独立审 + 我 receiving-code-review 核验应对（驳回 1 条无据建议、上交 1 条契约决策）；仅供参考，**不替代人工评审**。
