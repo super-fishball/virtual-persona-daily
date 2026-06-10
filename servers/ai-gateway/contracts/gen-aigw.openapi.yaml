@@ -12,11 +12,20 @@ openapi: 3.1.0
 
 info:
   title: generation-service ↔ ai-gateway 契约（A1 首刀）
-  version: 0.1.0-a1
+  version: 0.1.1-a1
   description: |
     servers/generation-service（消费方）经 servers/ai-gateway（提供方，唯一 LLM 入口）
     调用单家 LLM（DeepSeek）做补全。gateway 持有 LLM key、协议适配、超时/重试，
     并对输出施加通用横切 guardrail（注入回显 / 泄漏 prompt / 不安全内容过滤）后返回。
+
+    错误码口径（F4·GW-1 评审 ③ 后演化，向后兼容·加 400/500）：所有非 2xx 一律
+    用 Error{code,message} 体，机读 code 区分语义——
+      400 invalid_request    请求不符 schema（缺字段 / 超长 / 多余字段）；
+      422 guardrail_blocked  **仅** 输出横切 guardrail 拦截（不再混入请求校验）；
+      500 internal_error     网关内部异常（兜底，绝不回显 prompt/personality）；
+      502 upstream_unavailable 上游 DeepSeek 不可用 / 超时（重试后仍失败）。
+    最坏时延：单次上游超时 15s + 最多 1 次重试（退避 0.5s）⇒ 网关最坏 ≈30s；
+    消费方（gen）应据此设自身超时 > 30s、且不再叠加重试（G-1 非幂等，避免重复烧配额）。
 
 servers:
   - url: /
@@ -35,6 +44,9 @@ paths:
         F4·GW-1（守"薄"硬约束）：① guardrail 为 **block-only**——命中即 422，
         **不做静默改写/脱敏**（改写=篡改业务产出）；② 上述字段→角色为**固定机械映射**，
         gateway **不按内容做分支判断**（详见 spec §6.4）。
+        错误码：请求不符 schema → 400 invalid_request（与 guardrail 的 422 分离，
+        评审 ③·C1）；guardrail 命中 → 422 guardrail_blocked；内部异常 → 500
+        internal_error（兜底脱敏，评审 ③·C3）；上游失败 → 502 upstream_unavailable。
       requestBody:
         required: true
         content:
@@ -48,14 +60,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CompletionResponse'
+        '400':
+          description: 请求不符 schema（缺字段 / 超长 / 多余字段）；code=invalid_request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '422':
-          description: 输出横切 guardrail 拦截（注入回显 / 泄漏 prompt / 不安全内容）
+          description: 输出横切 guardrail 拦截（注入回显 / 泄漏 prompt / 不安全内容）；code=guardrail_blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 网关内部异常兜底（绝不回显 prompt/personality）；code=internal_error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '502':
-          description: 上游 LLM（DeepSeek）不可用 / 超时（重试后仍失败）
+          description: 上游 LLM（DeepSeek）不可用 / 超时（重试后仍失败）；code=upstream_unavailable
           content:
             application/json:
               schema:

@@ -19,6 +19,8 @@
 
 - **schema 归提供方子项目，不放 feature/**（本表只放指针，不复述路径以外的接口细节）。
 - **已知 A1 契约空缺（非缺陷，刻意）**：契约未声明鉴权（spec §3.2「鉴权聚合的完整化 A1 不做」）。redocly recommended 的 `security-defined` 会就此报警——属预期，待鉴权刀落地时在契约①补 `security`。是否采用 redocly 作为项目 lint 工具留团队定（本期 validate 门 = openapi-spec-validator）。
+- **契约③ 演化（v0.1.0-a1 → v0.1.1-a1，向后兼容·加 response）**：ai-gateway 子项目链 ③ 评审讲解（gen 消费方帽 + 安全镜头，见 [`../../servers/ai-gateway/review/2026-06-10-review-aigw-a1.md`](../../servers/ai-gateway/review/2026-06-10-review-aigw-a1.md)）查出 **C1**——请求校验失败原走 FastAPI 默认 `422 {detail}`，与 guardrail 的 `422 guardrail_blocked` **同码不同体**，消费方 gen 接不住。**牵头人裁决采纳**，由提供方（ai-gateway，契约③ 兜底权）演化契约③：**新增 `400 invalid_request`（请求不符 schema）+ `500 internal_error`（内部异常兜底脱敏，对应 C3）**，`422` 收窄为**仅 guardrail**；所有非 2xx 统一 `Error{code,message}`。并在描述写明**最坏时延 ≈30s**（C4：单次超时压到 15s + 1 重试）。**向后兼容**（仅加 response + 收窄 422 语义，结构未删改）→ openapi-spec-validator 复验 OK。消费方 gen 需相应处理 400/500 两新码（A1 各子项目并行、gen 未实现，无返工）。
+- **后续刀候选（⑦ 安全评审 S1，牵头人裁定·记后续刀）**：契约③ `systemInstruction` **未限长**（仅 `minLength:1`），叠加 ai-gateway guardrail 片段检测 O(n×m)，多 MB 指令可阻塞事件循环（DoS 面）。A1 为内部服务（仅 gen 调）、无外部攻击面，**本刀接受**；**下刀**给 `systemInstruction` 加 `maxLength`（稳定性横切，对齐 `personality` 既有 4000 上限同款理由），与限流/预算刀一并落。出处：[`../../servers/ai-gateway/review/2026-06-10-review-aigw-a1.md`](../../servers/ai-gateway/review/2026-06-10-review-aigw-a1.md) §7。
 
 ---
 
