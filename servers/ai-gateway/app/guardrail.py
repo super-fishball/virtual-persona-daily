@@ -12,13 +12,16 @@ _UNSAFE_TERMS = ("炸弹制作方法", "制毒")
 _LEAK_MIN_LEN = 16
 
 
-def _leaks_fragment(text: str, system_instruction: str) -> bool:
-    """systemInstruction 任一连续 ≥_LEAK_MIN_LEN 字跨度出现在输出 → 视为泄漏片段。"""
-    si = system_instruction.strip()
+def _leaks_fragment(folded_text: str, system_instruction: str) -> bool:
+    """systemInstruction 任一连续 ≥_LEAK_MIN_LEN 字跨度出现在输出 → 视为泄漏片段。
+
+    F5：大小写不敏感（casefold），与注入回显/不安全词检测口径一致。
+    """
+    si = system_instruction.strip().casefold()
     if len(si) < _LEAK_MIN_LEN:
         return False
     for i in range(len(si) - _LEAK_MIN_LEN + 1):
-        if si[i : i + _LEAK_MIN_LEN] in text:
+        if si[i : i + _LEAK_MIN_LEN] in folded_text:
             return True
     return False
 
@@ -26,18 +29,18 @@ def _leaks_fragment(text: str, system_instruction: str) -> bool:
 def scan_output(text: str, system_instruction: str) -> str | None:
     """对输出文本做三类规则匹配；命中返回原因码，否则 None。
 
-    block-only、只看输出文本、不读业务语义（GW-1 硬线）。
+    block-only、只看输出文本、不读业务语义（GW-1 硬线）；三类均大小写不敏感（F5）。
     """
-    lowered = text.lower()
+    folded = text.casefold()
     for needle in _INJECTION_ECHO:
-        if needle.lower() in lowered:
+        if needle.casefold() in folded:
             return "injection_echo"
 
-    if _leaks_fragment(text, system_instruction):  # C2：片段检测
+    if _leaks_fragment(folded, system_instruction):  # C2：片段检测
         return "prompt_leak"
 
     for term in _UNSAFE_TERMS:
-        if term in text:
+        if term.casefold() in folded:
             return "unsafe_content"
 
     return None

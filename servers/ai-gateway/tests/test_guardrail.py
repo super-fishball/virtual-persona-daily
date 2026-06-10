@@ -19,7 +19,7 @@ def _body() -> dict[str, str]:
 
 def _patch_output(monkeypatch: pytest.MonkeyPatch, output: str) -> None:
     async def fake(
-        messages: list[dict[str, str]], *, transport: httpx.BaseTransport | None = None
+        messages: list[dict[str, str]], *, transport: httpx.AsyncBaseTransport | None = None
     ) -> str:
         return output
 
@@ -57,3 +57,23 @@ def test_guardrail_blocks_unsafe_content(monkeypatch: pytest.MonkeyPatch) -> Non
     body = resp.json()
     assert set(body.keys()) == {"code", "message"}
     assert body["code"] == "guardrail_blocked"
+
+
+def test_guardrail_prompt_leak_is_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    # F5：英文系统指令被异写（大小写不同）回显，仍须拦——与注入回显的大小写不敏感一致
+    system = "You are a virtual persona, keep it safe."
+    fragment = system[0:16]  # "You are a virtua"
+    leaked = "by the way, " + fragment.lower() + " ... rest is mine."
+    assert fragment not in leaked  # 原大小写不在；只有小写异写
+
+    _patch_output(monkeypatch, leaked)
+    resp = client.post(
+        "/v1/complete",
+        json={
+            "systemInstruction": system,
+            "personality": "cheerful",
+            "realTime": "2026-06-10T12:00:00+00:00",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "guardrail_blocked"
