@@ -22,7 +22,7 @@ def test_complete_contract_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     async def fake_call(
-        messages: list[dict[str, str]], *, transport: httpx.BaseTransport | None = None
+        messages: list[dict[str, str]], *, transport: httpx.AsyncBaseTransport | None = None
     ) -> str:
         captured["messages"] = messages
         return "你好，我刚来到这座城市。"
@@ -46,7 +46,7 @@ def test_complete_contract_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_complete_upstream_unavailable_returns_502(monkeypatch: pytest.MonkeyPatch) -> None:
     async def boom(
-        messages: list[dict[str, str]], *, transport: httpx.BaseTransport | None = None
+        messages: list[dict[str, str]], *, transport: httpx.AsyncBaseTransport | None = None
     ) -> str:
         raise UpstreamUnavailable("down")
 
@@ -76,7 +76,7 @@ def test_complete_unexpected_error_returns_500_without_leak(
     secret = "绝密性格标记XYZ"
 
     async def kaboom(
-        messages: list[dict[str, str]], *, transport: httpx.BaseTransport | None = None
+        messages: list[dict[str, str]], *, transport: httpx.AsyncBaseTransport | None = None
     ) -> str:
         raise RuntimeError(f"boom containing {secret}")  # 即便异常夹带秘密……
 
