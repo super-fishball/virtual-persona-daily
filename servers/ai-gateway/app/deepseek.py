@@ -15,7 +15,7 @@ BACKOFF_SECONDS = 0.5
 async def call_deepseek(
     messages: list[dict[str, str]],
     *,
-    transport: httpx.BaseTransport | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> str:
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
