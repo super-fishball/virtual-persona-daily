@@ -13,7 +13,11 @@ class AigwClient:
 
     def __init__(self, base_url: str, timeout: float) -> None:
         self._base = base_url
-        self._timeout = timeout
+        # F-3：实例级复用一个 AsyncClient，由 lifespan 在 app 级创建/关闭（app/main.py）。
+        self._client = httpx.AsyncClient(timeout=timeout)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def complete(self, inputs: CompletionInputs) -> str:
         payload = {
@@ -22,8 +26,7 @@ class AigwClient:
             "realTime": inputs.real_time,
         }
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(f"{self._base}/v1/complete", json=payload)
+            resp = await self._client.post(f"{self._base}/v1/complete", json=payload)
         except httpx.HTTPError as exc:
             # 超时/连接失败 → 502；不重试（一次性请求）
             raise GenError(502, CODE_UPSTREAM_UNAVAILABLE, "ai-gateway unavailable") from exc

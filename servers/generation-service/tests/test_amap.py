@@ -12,24 +12,24 @@ BASE = "https://restapi.amap.com"
 @pytest.mark.asyncio
 @respx.mock
 async def test_regeo_extracts_city_and_city_level_adcode() -> None:
-    # regeo 的 adcode 是**区级**（黄浦 310101）；须派生**市级**（前4位+00 → 310100）
+    # 普通地级市：regeo adcode 是**区级**（杭州上城 330102）；派生**市级** 330100（前4位+"00"）
     respx.get(f"{BASE}/v3/geocode/regeo").mock(
         return_value=httpx.Response(200, json={
             "status": "1",
-            "regeocode": {"addressComponent": {"city": "上海市", "province": "上海市",
-                                               "adcode": "310101", "district": "黄浦区"}},
+            "regeocode": {"addressComponent": {"city": "杭州市", "province": "浙江省",
+                                               "adcode": "330102", "district": "上城区"}},
         })
     )
     client = AmapClient(key="k", base_url=BASE, timeout=5.0)
-    city, city_adcode = await client.regeo_city(Coordinate(lng=121.47, lat=31.23))
-    assert city == "上海市"
-    assert city_adcode == "310100"  # 市级，非区级 310101（F1：不泄露区级位置）
+    city, city_adcode = await client.regeo_city(Coordinate(lng=120.16, lat=30.25))
+    assert city == "杭州市"
+    assert city_adcode == "330100"  # 市级，非区级 330102（F1：不泄露区级位置）
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_regeo_municipality_fallback() -> None:
-    # 直辖市 city 为空 → 回退 province；区级 adcode 110101 → 派生市级 110100（spec §9·④/F1）
+    # 直辖市 city 为空 → 回退 province；区级 adcode 110101 → 派生**省级**市码 110000（F-2）
     respx.get(f"{BASE}/v3/geocode/regeo").mock(
         return_value=httpx.Response(200, json={
             "status": "1",
@@ -40,7 +40,26 @@ async def test_regeo_municipality_fallback() -> None:
     client = AmapClient(key="k", base_url=BASE, timeout=5.0)
     city, city_adcode = await client.regeo_city(Coordinate(lng=116.4, lat=39.9))
     assert city == "北京市"
-    assert city_adcode == "110100"
+    assert city_adcode == "110000"  # 直辖市：省码+"0000"，非市辖区伪码 110100
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_regeo_municipality_derives_province_level_adcode() -> None:
+    # F-2：直辖市市级 adcode = 省码+"0000"（上海 310000），不是市辖区伪码 310100。
+    # 上海黄浦区码 310101 → 应派生 310000（[:2]+"0000"），否则 /v3/config/district
+    # 查 310100 可能无中心点 → 直辖市用户全 502。
+    respx.get(f"{BASE}/v3/geocode/regeo").mock(
+        return_value=httpx.Response(200, json={
+            "status": "1",
+            "regeocode": {"addressComponent": {"city": "上海市", "province": "上海市",
+                                               "adcode": "310101", "district": "黄浦区"}},
+        })
+    )
+    client = AmapClient(key="k", base_url=BASE, timeout=5.0)
+    city, city_adcode = await client.regeo_city(Coordinate(lng=121.47, lat=31.23))
+    assert city == "上海市"
+    assert city_adcode == "310000"  # 省级直辖市码，非市辖区伪码 310100
 
 
 @pytest.mark.asyncio
@@ -53,10 +72,10 @@ async def test_representative_point_queries_city_level_adcode() -> None:
         })
     )
     client = AmapClient(key="k", base_url=BASE, timeout=5.0)
-    point = await client.representative_point("310100")
+    point = await client.representative_point("310000")
     assert point.lng == 121.472644 and point.lat == 31.231706
-    # 用市级 adcode 查（F1：取市中心而非区中心）
-    assert route.calls.last.request.url.params["keywords"] == "310100"
+    # 用市级 adcode 查（F1/F-2：取市中心；直辖市为省级 310000）
+    assert route.calls.last.request.url.params["keywords"] == "310000"
 
 
 @pytest.mark.asyncio
@@ -110,3 +129,63 @@ async def test_amap_error_does_not_chain_url_bearing_exception() -> None:
     carried = f"{err} || cause={err.__cause__!r}"
     assert "SECRETKEY123" not in carried
     assert "121.47999" not in carried
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_regeo_non_success_status_maps_502() -> None:
+    # F-4：高德 HTTP 200 但 status != "1"（业务失败，如配额耗尽/无效 key）→ 502。
+    respx.get(f"{BASE}/v3/geocode/regeo").mock(
+        return_value=httpx.Response(200, json={"status": "0", "info": "DAILY_QUERY_OVER_LIMIT"})
+    )
+    client = AmapClient(key="k", base_url=BASE, timeout=5.0)
+    with pytest.raises(GenError) as ei:
+        await client.regeo_city(Coordinate(lng=1, lat=1))
+    assert ei.value.status_code == 502
+    assert ei.value.code == CODE_UPSTREAM_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_regeo_incomplete_maps_502() -> None:
+    # F-4：status=1 但 city/province 皆空 → 取不到城市 → 502。
+    respx.get(f"{BASE}/v3/geocode/regeo").mock(
+        return_value=httpx.Response(200, json={
+            "status": "1",
+            "regeocode": {"addressComponent": {"city": [], "province": [], "adcode": "310101"}},
+        })
+    )
+    client = AmapClient(key="k", base_url=BASE, timeout=5.0)
+    with pytest.raises(GenError) as ei:
+        await client.regeo_city(Coordinate(lng=1, lat=1))
+    assert ei.value.status_code == 502
+    assert ei.value.code == CODE_UPSTREAM_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_representative_point_empty_districts_maps_502() -> None:
+    # F-4：行政区划返回空 districts → 502。
+    respx.get(f"{BASE}/v3/config/district").mock(
+        return_value=httpx.Response(200, json={"status": "1", "districts": []})
+    )
+    client = AmapClient(key="k", base_url=BASE, timeout=5.0)
+    with pytest.raises(GenError) as ei:
+        await client.representative_point("310000")
+    assert ei.value.status_code == 502
+    assert ei.value.code == CODE_UPSTREAM_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_poi_all_keywords_miss_maps_502() -> None:
+    # F-4：三个 keyword（咖啡馆/公园/书店）全落空（pois=[]）→ 502，且每个 keyword 各试一次。
+    route = respx.get(f"{BASE}/v3/place/around").mock(
+        return_value=httpx.Response(200, json={"status": "1", "pois": []})
+    )
+    client = AmapClient(key="k", base_url=BASE, timeout=5.0)
+    with pytest.raises(GenError) as ei:
+        await client.poi_place(Coordinate(lng=121.47, lat=31.23))
+    assert ei.value.status_code == 502
+    assert ei.value.code == CODE_UPSTREAM_UNAVAILABLE
+    assert route.call_count == 3
