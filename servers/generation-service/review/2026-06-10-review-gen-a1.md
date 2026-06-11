@@ -32,6 +32,31 @@
 
 ---
 
+## ✅ 处理状态（事后修复轮 · 分支 `review/2026-06-11-gen-a1`）
+
+> 开发者裁决「全清」。9 条 finding 已在本分支全部处理（A 两个重要 bug 严格 TDD 先红后绿；
+> B 补测；C 重构保绿；D 文档）。门禁：gen `ruff` / `mypy` / `pytest` 全绿（**51 passed**，原 41 + 新 10），
+> 全仓 `make check` = **all gates green**。逐条处理见各 finding 末「▶ 处理」。
+> ⚠️ 事后修复 ≠ 合并门禁——仍待人工评审 + ⑥ PR 门禁；AI 永不作为合并门禁。
+
+| 编号 | 结果 | 关键改动 |
+|---|---|---|
+| F-1 | ✅ 修复（TDD 先红后绿） | `assemble.py` 上界取当日真正末刻 `23:59:59.999999`、`end=min(start+60min, 末刻)` 保证 `end≥start` |
+| F-2 | ✅ 修复（TDD 先红后绿） | `amap.py` 直辖市（省码 11/12/31/50）派生 `XX0000`，否则 `[:4]+"00"`；**高德对该码解析待集成实测**（见下） |
+| F-3 | ✅ 重构（保绿） | `AmapClient`/`AigwClient` 复用单个 `AsyncClient`；`lifespan` app 级创建 / `aclose` |
+| F-4 | ✅ 补测 | 非 1 status / regeo 不全 / district 空 / POI 落空 各一条 → 502 |
+| F-5 | ✅ 补测 | aigw-400 告警 `logger.error` 真被记 + aigw 错误路径不泄漏 personality 回归 |
+| F-6 | ✅ 删除 | 随 F-1 删 `_MIN`/`_MAX` 死钳制 |
+| F-7 | ✅ 消解 | assemble 测试加 `23:59:30` / `23:59:00` 秒级用例 |
+| F-8 | ✅ 重构（TDD 先红后绿） | `prompt.py` `assert` → 显式 `if/raise RuntimeError`（`-O` 安全） |
+| F-9 | ✅ 收尾 | `main.py` 删 `response_model_by_alias` no-op；`amap.py` city 回退加注释 |
+
+**F-2 遗留待办（必须人工跟进）**：单测只锁"派生逻辑 = `310000`/`110000`"，**未**证明高德 `/v3/config/district` 对直辖市市级码（如 `310000`）真返回可用 `center`。**高德对该码的真实解析待集成实测**（需真 key 打一次）——在此之前，直辖市端到端可用性未经证明。
+
+**F-8 旁注（顺手记，非本轮改）**：分离自检为**子串匹配**（`personality in system_instruction`），对极短且恰为指令文本子串的性格（如 `"诞生"`/`"城市"`）会**误命中** → 经 catch-all 映 502。A1 personality 多为"温柔爱读书"类描述，命中概率极低；属既有语义（spec §6.1 即定义为"性格字符串不得出现在构造中"），本轮只做 `assert→if/raise` 的 -O 加固、未改判定语义。是否收紧判定留人裁决。
+
+---
+
 ## 阻断（Blocking）
 
 **无。** 明确记录：未发现 PII / 高德 key 泄漏、未发现绕过网关直连、未发现契约②③破坏、未发现对外吐 400/502 之外的响应。PII/凭证一项实现质量高于平均（见安全专项）。
@@ -59,6 +84,8 @@ start=2026-06-10T23:59:00+08:00  end=2026-06-10T23:59:00+08:00  dur= 0.00min  en
 
 **严重度 重要**：每天 60 秒窗口（约 0.07%）必现，产出语义非法事件；非阻断仅因 A1 单次低频且仅诞生事件。建议修法方向（不在本评审改）：上界用 `min(end, start_当日23:59:59)` 且兜底 `end = max(end, start)`，或上界取当日真实末刻而非抹零的 23:59:00。
 
+**▶ 处理（事后修复 · TDD 先红后绿）**：`assemble.py` 上界改用当日真正末刻 `end_of_day=start.replace(...,23,59,59,999999)`、`end=min(start+60min, end_of_day)`——两侧恒 ≥ start，故 `end≥start` 永成立。先加 `23:59:30`/`23:59:00` 秒级用例**确认红**（`end=23:59:00 < start=23:59:30`），再修**转绿**；旧两条午夜用例同步改到新上界（消解 F-7）；并删 `_MIN`/`_MAX` 死钳制（F-6）。`tests/test_assemble.py` 5 passed。
+
 ---
 
 ### F-2 · 直辖市"市级 adcode"派生为市辖区码，且单测给假信心 · `app/amap.py:56`
@@ -73,6 +100,8 @@ start=2026-06-10T23:59:00+08:00  end=2026-06-10T23:59:00+08:00  dur= 0.00min  en
 
 **严重度 重要（含不确定性）**：能否复现 502 取决于高德 `/v3/config/district` 对 `XX0100` 伪码的真实行为，**本评审无 key、未能实地验证**。诚实标注：这是"高风险但需实测确认"的发现。建议方向：直辖市（province ∈ {11,12,31,50}）特判 `XX0000`，并补一条**真打高德**或更贴真的直辖市端到端用例。
 
+**▶ 处理（事后修复 · TDD 先红后绿）**：`amap.py` regeo_city 加特判：`adcode[:2] in {"11","12","31","50"}` → `XX0000`，否则 `[:4]+"00"`。先加上海 `310101→310000` 用例**确认红**（旧码给 `310100`），再修**转绿**；旧"上海当作通用市"用例改为真·普通地级市（杭州 `330102→330100`）测 else 分支，北京用例断言更新到 `110000`，representative_point 入参同步 `310000`。⚠️ **遗留**：单测只锁派生逻辑，**高德对市级码的真实解析仍待集成实测**（需真 key），直辖市端到端可用性未证明——见顶部「F-2 遗留待办」。
+
 ---
 
 ## 次要（Minor）
@@ -80,24 +109,38 @@ start=2026-06-10T23:59:00+08:00  end=2026-06-10T23:59:00+08:00  dur= 0.00min  en
 ### F-3 · httpx 客户端未复用，每次调用新建 `AsyncClient` · `app/amap.py:30`、`app/aigw.py:25`
 单次 `/generate` 内，高德要发 3–5 个请求（regeo 1 + district 1 + POI 1~3），每个 `_get` 都 `async with httpx.AsyncClient(...)` 新建连接池 + 重做 TCP/TLS 握手；aigw 亦每请求新建。无跨调用/跨请求连接复用。A1 低频下功能无碍，但属 httpx 反模式（官方建议复用 client），徒增握手时延。建议：`AmapClient`/`AigwClient` 持有长生命周期 `AsyncClient`（或 app 级共享 + lifespan 关闭）。任务点名"httpx 复用"，据此列出。
 
+**▶ 处理（事后修复 · 重构保绿）**：采纳 app 级 lifespan 方案。`AmapClient`/`AigwClient` 在 `__init__` 建**一个** `AsyncClient` 复用、提供 `aclose()`；`main.py` 加 `lifespan` 在 app 启动建实例存 `app.state`、关闭时 `aclose`；`service.generate_birth` 改为注入 `amap`/`aigw`（不再自建）。测试 `test_generate`/`test_contract` 改用 `with TestClient(app)` 触发 lifespan（respx 仍绿）。全 51 passed。
+
 ### F-4 · 高德错误/空结果分支大面积无测试 · `app/amap.py:40-41,52-53,65-66,89`
 仅 HTTP 500 路径有测试（`test_amap.py:85-92` / `test_generate.py:77-92`）。**未覆盖**：① 高德返回 HTTP 200 + `status != "1"`（业务失败，`amap.py:40-41`，任务点名的"高德非 1 status"）；② regeo 不完整 `not city or len(adcode)!=6`（`:52-53`）；③ district 空 `districts==[]`（`:65-66`）；④ POI 全 keyword 落空 `poi not found`（`:89`）。这些分支都汇流到同一个"502 + 无 PII"行为（该行为已被 500 路径测过），故定**次要**；但 spec §8 验收要求错误路径可验，且这些是"下游不可用→502"的契约保证点，建议各补一条 respx 用例。
+
+**▶ 处理（事后修复 · 补测）**：`test_amap.py` 新增 4 条 → 各断 `GenError(502, upstream_unavailable)`：`test_regeo_non_success_status_maps_502`（status="0"）、`test_regeo_incomplete_maps_502`（city/province 皆空）、`test_representative_point_empty_districts_maps_502`、`test_poi_all_keywords_miss_maps_502`（且断 `call_count==3` 验三 keyword 各试一次）。均为既有行为表征，绿。
 
 ### F-5 · aigw-400"内部告警不可静默"未被断言；aigw 错误路径无泄漏回归测试 · `app/aigw.py:38-41`、`tests/test_aigw.py:46-54`
 spec §6.3 规定契约③返回 400（gen 自造请求 bug）时对外 502 **且内部告警（不可静默）**。`test_other_codes_map_502_upstream_unavailable[400]` 只断言 status/code，**没断言 `logger.error` 真被调用**——"不可静默"这条无回归守门（catch-all 的日志在 `test_errors.py:41-47` 测了，但 aigw-400 这条专属告警没测）。另：amap 有两条专门的"错误路径不泄漏 PII/凭证"测试，aigw 错误路径一条都没有（风险更低，见安全专项，但缺少守门）。
 
+**▶ 处理（事后修复 · 补测）**：`test_aigw.py` 新增两条——`test_400_maps_502_and_alert_is_not_silent`（caplog 断 `gen.aigw` 有 ERROR 记录、且告警文案不含 personality）；`test_transport_error_does_not_leak_personality_in_exception_chain`（传输错误下，含唯一 token 的 personality 不出现在 `GenError` 消息/`__cause__`/`__context__`，与 amap from-None 回归平价；并注明 aigw 有意 `from exc` 保留诊断链）。代码侧 `logger.error` 本已存在、不静默，无需改实现。
+
 ### F-6 · `assemble` 的 `_MIN`/`_MAX` 钳制为死代码 · `app/assemble.py:16-19`
 `_DEFAULT=60min` 固定，恒在 `[15min, 4h]` 内，故 `if end-start < _MIN` 与 `> _MAX` 两个分支**永不触发**。是为"未来时长可变"预留的脚手架，当前无效、也无测试能触达。非缺陷，记为可读性/覆盖率噪声。
+
+**▶ 处理（事后修复）**：随 F-1 一并删除 `_MIN`/`_MAX` 常量与两个死分支，`assemble.py` 仅留 `_DEFAULT` + 午夜上界。后续若引入可变时长再补钳制（届时配套测试）。
 
 ### F-7 · assemble 测试只用整分钟，系统性漏掉 F-1 · `tests/test_assemble.py:6-7`
 `_at(h, m)` 构造的 `datetime` 秒/微秒恒为 0，于是三条午夜用例（含 `23:50`）都验不到生产里 `datetime.now()` 必带的秒级精度——正是 F-1 藏身处。属"测试输入迁就了实现的乐观假设"，给出假绿。建议补 `23:59:30` 一类秒级用例。
 
+**▶ 处理（事后修复）**：随 F-1 消解。`test_assemble.py` 新增 `test_end_not_before_start_in_final_minute_with_seconds`（`23:59:30`，即原假绿盲区）与 `test_end_not_before_start_at_2359_exact`（`23:59:00`）；现 assemble 测试覆盖秒级午夜边界。
+
 ### F-8 · `prompt.py` 用 `assert` 守安全不变量，`python -O` 下被剥离 · `app/prompt.py:26`
 `assert personality not in system_instruction` 是"性格不入指令"的防御性自检（spec §6.1 要求"断言+单测"）。但 `assert` 在 `-O` 优化模式下被剥离。所幸真正的结构保证来自模板只 `format(city, place_type)`、根本不接 personality（`prompt.py:25`），故剥离后分离仍成立，风险低。记一笔：安全不变量长期不宜只靠 `assert`。
+
+**▶ 处理（事后修复 · TDD 先红后绿）**：`prompt.py` 改 `if personality in system_instruction: raise RuntimeError(...)`（消息不回显 personality；命中=代码 bug，经 catch-all 映 502）。TDD：新增 `test_guard_raises_when_personality_appears_in_instruction`，期望 `RuntimeError`——旧 `assert` 抛 `AssertionError` 不被 `pytest.raises(RuntimeError)` 捕获故**红**，改 `if/raise` 后**绿**。判定语义（子串匹配）维持不变，旁注见顶部「F-8 旁注」。
 
 ### F-9 · 两处无害但易误解的写法
 - `app/main.py:24` `response_model_by_alias=True`，但 `schemas.py` 未定义任何 alias（字段名本就是 camelCase），该参数实为 no-op。
 - `app/amap.py:50` city 回退只做 `city → province`，spec §9·④ 字面写的是"city 空 → district/province"。代码跳过 district：对直辖市 `province="北京市"` 才是正确市名（district 会得"东城区"，错），故此处**偏离即更正确**，记为良性偏离、无需动作，仅作可追溯标注。
+
+**▶ 处理（事后修复 · 收尾）**：`main.py` 重构（F-3）时一并删除 `response_model_by_alias` no-op（字段名即 camelCase，无 alias）；`amap.py` city 回退处补注释说明"只取 city→province、不回退 district 才对直辖市正确"。无行为变化，测试保绿。
 
 ---
 
