@@ -101,6 +101,18 @@
 - **影响（med）**：两条路都比「确认放行这一笔」**粒度粗**——①绕过让守卫形同虚设且开坏先例；②整体关停期间**所有**高影响保护一并失效（不止本子项目 app/，全仓 high-impact 都不拦），关停窗口内任何越界/高影响误改都无机械拦阻，只剩 PR 门禁兜底。本次靠「单 owner + 关停窗口短 + 全程 commit 留痕」兜住，但机制上是「要么全拦、要么全放」。同 [[B6]]/[[B11]] 一类：会话内软守卫的结构性弱点——这条特指**缺「确认放行」中间档**，把预授权的合法高影响编辑逼成「绕过或关停」。
 - **现状（待办·回流候选）**：**回流候选**，接 [[B6]]。方向（延后）：给 high-impact 暂停加一档**显式确认放行**（如读 `.claude/task.env` 的一次性 `ALLOW_HIGH_IMPACT=<path>` 票、或 PreToolUse 返回询问而非硬 block），让「预授权的本子项目高影响编辑」能**留痕放行**而非二选一绕过/关停；权威仍落 ⑥ PR 门禁，但会话层不必在「裸奔」与「寸步难行」间跳。出处：本 feature ④ TDD（`feat/ai-gateway-a1`）。
 
+### B15. 日志/传输层 PII/凭证泄漏在 3 层 guardrail 覆盖外；A1 修复是 httpx 压级 band-aid，凭证 / 错误路径靠测试兜底
+
+- **现象**：gen A1 的 3 层 guardrail（① 录入审核 / ② prompt-as-data / ③ ai-gateway 输出审核）全在**内容层**（防注入 / 回显 / 不安全内容）。但精确坐标(PII)与高德 key(凭证)经 httpx 落在**日志 / 传输层**：httpx 默认 INFO 记完整请求 URL——逆地理 URL 含坐标、各高德 URL 含 `&key=`。④ TDD `test_precise_location_not_logged` 红捕获，A1 修复 = [`servers/generation-service/app/main.py`](../../../servers/generation-service/app/main.py) 把 `httpx` logger 压到 WARNING。本次向导侧 checkpoint 复查发现该修复**覆盖不全**：(a) 原测试只断坐标、未断 key；(b) 只测 happy path，未测高德错误路径——[`app/amap.py`](../../../servers/generation-service/app/amap.py) `_get` 的 `raise GenError(...) from exc` 把含完整 URL（坐标+key）的 `HTTPStatusError` 链进 `__cause__`，而 httpx 压级只管"请求 INFO 行"、**管不到异常链**；实测确认：错误路径下 `__cause__` 的 str 同时含坐标与 key，且若任何 error logger 以 `exc_info` 记该异常即泄漏。
+- **影响（high·security·结构性）**：3 层 guardrail 是**内容层**防御，对"基础设施 / 依赖默认行为把 PII / 凭证写进日志或异常链"这类**结构性泄漏面无覆盖**。httpx 压级是 band-aid（点状压一个 logger 的级别），非系统性的"PII / 凭证不出服务边界"控制；坐标+key 仍**潜伏在异常链**中——错误路径 green 是"当前无 `exc_info` 异常日志"的偶然结果，而非结构保证。同 [[B9]] 一类：那条是"按文件名拦 ≠ 按内容拦"，这条是"内容层 guardrail ≠ 传输 / 日志层泄漏"——都是机械 / 内容防线与真实泄漏面错位。
+- **现状（已补强测试守卫 + 回流候选）**：本次按 TDD 补强两条回归测试——`test_precise_location_not_logged` 加 key 断言（强化为坐标+凭证双断）；新增 `test_amap_error_path_no_pii_in_logs`（高德 500 错误路径下断坐标+key 均不入日志）。实测错误路径**当前 green**（无 `exc_info` 异常日志）→ 按牵头人裁决「绿则不改实现」，留两测试作回归兜底（若日后引入异常 `exc_info` 日志即转红报警）。**回流候选 / 方向（延后）**：把"PII / 凭证不入日志 / 异常链"提为**结构性控制**而非点状压级——如统一异常映射时剥 URL / 凭证、或 `from None` 断链、或日志层 redaction filter；并把"日志 / 传输层泄漏面"纳入 guardrail 体系的盲区清单（内容层之外另立一层）。
+
+### B16. ②plan 内联的测试片段有自洽 bug（base64 正则漏 `=`），③ 评审讲解未抓出、仅 ④ TDD 揪出
+
+- **现象**：gen A1 的 ②plan（[`plan/2026-06-10-plan-gen-a1.md`](../../../servers/generation-service/plan/2026-06-10-plan-gen-a1.md) Task 3）直接内联了 review 第二道的**测试**与**实现**片段；其 base64 blob 正则 `[A-Za-z0-9+/]{80,}` 漏掉 `=` 填充符。plan 自带的测试用例（一段以 `=` 结尾的 base64 串 ×3 拼接）因 `=` 不在字符类内被切成最长 51 字符的连续段 < 80 → **plan 的测试与 plan 的实现互相矛盾**，照抄即红。该自洽 bug 在 ③ 评审讲解（对 plan 的独立讲解评审）**未被发现**，直到 ④ TDD 照 plan 写测试、跑出红才暴露；④ 修法 = 把 `=` 纳入字符类 `[A-Za-z0-9+/=]{80,}`（commit `d3d05db`）。
+- **影响（med·process）**：③ 评审讲解的职责是"换视角独立审 plan、挡 owner 盲区"（见 [[B13]]），但本次 ③ 审的是 plan 的**叙述 / 决策**，没**实跑 plan 内联的可执行片段**——plan 里的 test / impl 代码成了评审盲区。plan 越"贴心"地内联完整 test+impl，越容易让人误以为"评审过 = 片段对"，而其自洽性（测试与实现是否互证）只有真跑才验得出。
+- **现状（已修 + 流程留观）**：④ 已修正则并 commit，测试转绿。**流程留观 / 回流候选（延后）**：③ 评审讲解若 plan 内联了可执行片段，应把片段的"测试 ↔ 实现"自洽性纳入 checklist（哪怕粗跑一次）；或约定 plan **不内联**完整实现代码、只给意图 + 签名，避免"未验证的实现细节"伪装成已评审结论。同 [[B13]] 一类：均 ③ 评审讲解的覆盖盲区——B13 是"步骤易被整条跳过（owner 自放行）"，B16 是"步骤做了、但未覆盖 plan 内可执行片段的自洽性"。
+
 ---
 
 ## 备注
