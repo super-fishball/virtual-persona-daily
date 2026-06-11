@@ -48,7 +48,7 @@ def test_generate_happy_path(monkeypatch) -> None:
 
 @respx.mock
 def test_precise_location_not_logged(monkeypatch, caplog) -> None:
-    monkeypatch.setenv("AMAP_KEY", "k")
+    monkeypatch.setenv("AMAP_KEY", "SECRETKEY123")
     _mock_all_ok()
     with caplog.at_level("DEBUG"):
         client.post(
@@ -58,6 +58,8 @@ def test_precise_location_not_logged(monkeypatch, caplog) -> None:
     # PII：精确坐标不得入任何日志（spec §7.2）
     assert "121.47999" not in caplog.text
     assert "31.23888" not in caplog.text
+    # 凭证：高德 key 亦不得入任何日志（spec §7.3 / forbidden）
+    assert "SECRETKEY123" not in caplog.text
 
 
 @respx.mock
@@ -69,3 +71,21 @@ def test_personality_rejected_400(monkeypatch) -> None:
     )
     assert resp.status_code == 400
     assert resp.json()["code"] == "personality_rejected"
+
+
+@respx.mock
+def test_amap_error_path_no_pii_in_logs(monkeypatch, caplog) -> None:
+    # 错误路径：高德 500 → _get 的 raise_for_status 触发 HTTPStatusError（其 str/repr 含完整
+    # URL：精确坐标 + key），经 `raise GenError(...) from exc` 链入异常链。断言坐标与凭证都不入
+    # 任何日志（spec §7.2/§7.3）——httpx 压级只管"请求 INFO 行"，此处验异常链/error logger 路径。
+    monkeypatch.setenv("AMAP_KEY", "SECRETKEY123")
+    respx.get(f"{AMAP}/v3/geocode/regeo").mock(return_value=httpx.Response(500))
+    with caplog.at_level("DEBUG"):
+        resp = client.post(
+            "/generate",
+            json={"personality": "p", "location": {"lng": 121.47999, "lat": 31.23888}},
+        )
+    assert resp.status_code == 502  # 下游不可用 → 502
+    assert "121.47999" not in caplog.text
+    assert "31.23888" not in caplog.text
+    assert "SECRETKEY123" not in caplog.text
