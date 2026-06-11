@@ -1,3 +1,5 @@
+import traceback
+
 import httpx
 import pytest
 import respx
@@ -89,3 +91,21 @@ async def test_amap_failure_maps_502() -> None:
         await client.regeo_city(Coordinate(lng=1, lat=1))
     assert ei.value.status_code == 502
     assert ei.value.code == CODE_UPSTREAM_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_amap_error_does_not_chain_url_bearing_exception() -> None:
+    # 结构属性（在异常源头测、不靠日志）：上游错误时 GenError 不得把含完整 URL（坐标+key）的
+    # httpx 异常挂进异常链——否则 off-box 错误捕获(Sentry/APM) / 框架默认异常日志会渲染异常链
+    # 而泄漏 PII/凭证，日志层回归测试守不住（B15）。
+    respx.get(f"{BASE}/v3/geocode/regeo").mock(return_value=httpx.Response(500))
+    client = AmapClient(key="SECRETKEY123", base_url=BASE, timeout=5.0)
+    with pytest.raises(GenError) as ei:
+        await client.regeo_city(Coordinate(lng=121.47999, lat=31.23888))
+    err = ei.value
+    # from None 断链：__cause__ 为空，且渲染后的 traceback（即 Sentry/exc_info 所见）不含 URL/凭证
+    assert err.__cause__ is None
+    rendered = "".join(traceback.format_exception(type(err), err, err.__traceback__))
+    assert "SECRETKEY123" not in rendered
+    assert "121.47999" not in rendered
