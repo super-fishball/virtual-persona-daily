@@ -1,3 +1,5 @@
+import pytest
+
 from app.prompt import build_completion_inputs
 from app.schemas import Coordinate, PlacePayload
 
@@ -12,6 +14,18 @@ def test_system_instruction_excludes_personality() -> None:
     assert personality not in inputs.system_instruction
     # 性格只走 personality 数据槽
     assert inputs.personality == personality
+
+
+def test_guard_raises_when_personality_appears_in_instruction() -> None:
+    # F-8：分离自检改为**显式 if/raise**（assert 在 python -O 下被剥离）。当 personality 恰为
+    # 指令静态文本子串（"诞生" 在模板里），模拟"性格被拼进指令"的代码 bug → 须 raise 一个
+    # **非 AssertionError** 的异常（证明不是会被 -O 剥离的 assert）。
+    place = PlacePayload(type="公园", coordinate=Coordinate(lng=1, lat=1))
+    with pytest.raises(RuntimeError):
+        build_completion_inputs(
+            personality="诞生", city="北京市", place=place,
+            real_time="2026-06-10T10:00:00+08:00",
+        )
 
 
 def test_system_instruction_includes_city_and_place_not_realtime() -> None:
