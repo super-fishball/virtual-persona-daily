@@ -1,7 +1,11 @@
+import logging
+
 import httpx
 
 from app.errors import CODE_UPSTREAM_UNAVAILABLE, GenError
 from app.schemas import Coordinate, PlacePayload
+
+logger = logging.getLogger("gen.amap")
 
 # 固定休闲集（spec §9·④）：按序取首条命中。F3：用 keywords 检索而非类目码——
 # 高德类目码（尤其书店）易错，keywords 自描述、稳健；label 同时作对外 type。
@@ -28,7 +32,11 @@ class AmapClient:
             resp.raise_for_status()
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
-            raise GenError(502, CODE_UPSTREAM_UNAVAILABLE, "amap unavailable") from exc
+            # from None 断异常链：httpx 异常的 str/repr 含完整请求 URL（精确坐标 + 高德 key），
+            # 若随 __cause__ 外泄，off-box 错误捕获(Sentry/APM) / 框架默认异常日志会渲染异常链
+            # 而泄漏 PII/凭证（spec §7.2/§7.3，B15）。仅记异常类型名（不含 URL/凭证）保留诊断。
+            logger.warning("amap upstream error: %s", type(exc).__name__)
+            raise GenError(502, CODE_UPSTREAM_UNAVAILABLE, "amap unavailable") from None
         if str(data.get("status")) != "1":
             raise GenError(502, CODE_UPSTREAM_UNAVAILABLE, "amap returned non-success")
         return data

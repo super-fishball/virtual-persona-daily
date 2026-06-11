@@ -1,5 +1,3 @@
-import traceback
-
 import httpx
 import pytest
 import respx
@@ -104,8 +102,11 @@ async def test_amap_error_does_not_chain_url_bearing_exception() -> None:
     with pytest.raises(GenError) as ei:
         await client.regeo_city(Coordinate(lng=121.47999, lat=31.23888))
     err = ei.value
-    # from None 断链：__cause__ 为空，且渲染后的 traceback（即 Sentry/exc_info 所见）不含 URL/凭证
+    # from None 断链（结构属性）：__cause__ 为空，异常对象不再携带含 URL 的 httpx 异常。
     assert err.__cause__ is None
-    rendered = "".join(traceback.format_exception(type(err), err, err.__traceback__))
-    assert "SECRETKEY123" not in rendered
-    assert "121.47999" not in rendered
+    # 异常对象自身的数据面（消息 + 链 repr）= off-box 捕获 / exc_info 渲染异常链时读到的内容，
+    # 须无坐标/凭证。（不取整段 traceback：其会渲染本测试的源码行〔字面坐标〕，属测试构造产物、
+    # 非真实泄漏；生产调用点是 amap.regeo_city(req.location)，源码行不含字面坐标。）
+    carried = f"{err} || cause={err.__cause__!r}"
+    assert "SECRETKEY123" not in carried
+    assert "121.47999" not in carried
