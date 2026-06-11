@@ -22,13 +22,17 @@ class AmapClient:
     def __init__(self, key: str, base_url: str, timeout: float) -> None:
         self._key = key
         self._base = base_url
-        self._timeout = timeout
+        # F-3：实例级复用一个 AsyncClient（连接池跨本实例多次高德调用复用），由 lifespan
+        # 在 app 级创建/关闭（app/main.py），不再每次调用新建（省 TCP/TLS 反复握手）。
+        self._client = httpx.AsyncClient(timeout=timeout)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def _get(self, path: str, params: dict[str, str]) -> dict:
         params = {**params, "key": self._key}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(f"{self._base}{path}", params=params)
+            resp = await self._client.get(f"{self._base}{path}", params=params)
             resp.raise_for_status()
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -47,13 +51,23 @@ class AmapClient:
             "/v3/geocode/regeo", {"location": f"{location.lng},{location.lat}"}
         )
         comp = data["regeocode"]["addressComponent"]
+        # city 回退（spec §9·④"直辖市回退"）：直辖市 regeo 的 `city` 常为空 [] → 回退 `province`
+        # （province 即直辖市城市名"上海市"）。不回退 district（区名"黄浦区"非城市）。
+        # spec 字面写 district/province，此处只取 province 才正确（F-9）。
         city = _as_str(comp.get("city")) or _as_str(comp.get("province"))
         adcode = _as_str(comp.get("adcode"))
         if not city or len(adcode) != 6:
             raise GenError(502, CODE_UPSTREAM_UNAVAILABLE, "amap regeo incomplete")
-        # F1：regeo adcode 是**区级**（如黄浦 310101），取代表点会落到区中心
-        # → 既非"城市代表点"又泄露区级位置(PII)。派生**市级** adcode = 前4位+"00"。
-        city_adcode = adcode[:4] + "00"
+        # F1/F-2：regeo adcode 是**区级**（如黄浦 310101），取代表点会落到区中心
+        # → 既非"城市代表点"又泄露区级位置(PII)。派生**市级** adcode：
+        #   直辖市（省码 11/12/31/50 = 京/津/沪/渝）市级码 = 省码+"0000"（如 310000）；
+        #   普通地级市 = 前4位+"00"（如杭州上城 330102 → 330100）。
+        # 旧实现一律 [:4]+"00" 对直辖市得市辖区伪码 310100，/v3/config/district 可能
+        # 无中心点 → 直辖市用户全 502（F-2；高德对该码的真实解析待集成实测）。
+        if adcode[:2] in {"11", "12", "31", "50"}:
+            city_adcode = adcode[:2] + "0000"
+        else:
+            city_adcode = adcode[:4] + "00"
         return city, city_adcode
 
     async def representative_point(self, city_adcode: str) -> Coordinate:

@@ -1,8 +1,12 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI, Request
 
-from app.config import Settings, get_settings
+from app.aigw import AigwClient
+from app.amap import AmapClient
+from app.config import get_settings
 from app.errors import register_exception_handlers
 from app.schemas import GenerateRequest, GenerateResponse
 from app.service import generate_birth
@@ -12,7 +16,23 @@ from app.service import generate_birth
 # （保留 WARNING+ 仍可见真实故障）。test_precise_location_not_logged 守门。
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-app = FastAPI(title="generation-service")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # F-3：app 级创建/关闭下游 client，httpx 连接池跨请求复用（不再每次调用新建）。
+    settings = get_settings()
+    amap = AmapClient(settings.amap_key, settings.amap_base_url, settings.amap_timeout_seconds)
+    aigw = AigwClient(settings.aigw_base_url, settings.aigw_timeout_seconds)
+    app.state.amap = amap
+    app.state.aigw = aigw
+    try:
+        yield
+    finally:
+        await amap.aclose()
+        await aigw.aclose()
+
+
+app = FastAPI(title="generation-service", lifespan=lifespan)
 register_exception_handlers(app)
 
 
@@ -21,8 +41,6 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/generate", response_model=GenerateResponse, response_model_by_alias=True)
-async def generate(
-    req: GenerateRequest, settings: Settings = Depends(get_settings)
-) -> GenerateResponse:
-    return await generate_birth(req, settings)
+@app.post("/generate", response_model=GenerateResponse)
+async def generate(req: GenerateRequest, request: Request) -> GenerateResponse:
+    return await generate_birth(req, request.app.state.amap, request.app.state.aigw)

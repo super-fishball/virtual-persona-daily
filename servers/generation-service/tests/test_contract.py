@@ -10,7 +10,6 @@ from jsonschema import validate
 from app.config import get_settings
 from app.main import app
 
-client = TestClient(app)
 CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "api-gen.openapi.yaml"
 
 
@@ -53,9 +52,11 @@ def test_response_conforms_to_contract(monkeypatch) -> None:
         return_value=httpx.Response(200, json={"text": "刚来到这座城市"})
     )
 
-    resp = client.post(
-        "/generate",
-        json={"personality": "p", "location": {"lng": 121.47, "lat": 31.23}},
-    )
+    # F-3：app 级 client 由 lifespan 创建/关闭 → 用 `with TestClient(app)` 触发 lifespan。
+    with TestClient(app) as client:
+        resp = client.post(
+            "/generate",
+            json={"personality": "p", "location": {"lng": 121.47, "lat": 31.23}},
+        )
     assert resp.status_code == 200
     validate(instance=resp.json(), schema=_response_schema())
