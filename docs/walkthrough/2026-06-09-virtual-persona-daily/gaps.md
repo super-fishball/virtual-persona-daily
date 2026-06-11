@@ -108,6 +108,7 @@
 - **现状（实例已结构闭合 + 设计层回流候选保留）**：分两步处置——
   - (1) 先按 TDD 补强两条**日志层**回归测试（`test_precise_location_not_logged` 加 key 断言、强化为坐标+凭证双断；`test_amap_error_path_no_pii_in_logs` 高德 500 错误路径下断坐标+key 均不入日志）。实测错误路径**日志层当前 green**（现码无 `exc_info` 异常日志），但坐标+key 仍**潜伏异常链**——green 系偶然、回归日志测试**守不住 off-box 捕获(Sentry/APM) 与框架默认 `exc_info` 异常日志**。
   - (2) 经向导裁决**提前防御性闭合该实例**：[`app/amap.py`](../../../servers/generation-service/app/amap.py) `_get` 的 `raise GenError(...) from exc` 改 **`from None`** 断异常链（httpx 异常 repr 含完整 URL〔坐标+key〕，原随 `__cause__` 外泄），并加只含**异常类型名**（不含 URL/凭证）的 `logger.warning` 保留诊断；新增**源头结构测试** `test_amap_error_does_not_chain_url_bearing_exception`（在异常源头断 `__cause__ is None` 且异常数据面无坐标/凭证，**先红后绿**）钉死。**本实例已结构闭合**（异常链不再携带 URL/凭证），不再依赖"恰好没人 `exc_info`"。
+  - **已知第二处 `from exc`（[`app/aigw.py`](../../../servers/generation-service/app/aigw.py) `complete()` 传输错误分支）经核当前无泄漏**：它只 catch `httpx.HTTPError` 传输错，链的是**干净内部 URL** `{base}/v1/complete`（无凭证 / 坐标，请求 body 不进异常 repr）→ 当前**非活泄漏，不点修**（逐处 `from None` 即本条所警告的打地鼠）；统一归**结构性回流**——日志 redaction filter / 统一异常脱敏策略**一次覆盖所有下游 client**。
   - **但 guardrail 设计层仍无传输层 redaction 的通用控制** → **回流候选保留**：日志层 redaction filter / 统一异常脱敏策略。逐处 `from None` 是**点修**（每个新增下游 client 都得自觉守同一纪律），非系统性兜底；"日志 / 传输层泄漏面"应作为内容层 guardrail 之外**另立的一层**纳入盲区清单。同 [[B9]] 一类（机械 / 内容防线与真实泄漏面错位）。
 
 ### B16. ②plan 内联的测试片段有自洽 bug（base64 正则漏 `=`），③ 评审讲解未抓出、仅 ④ TDD 揪出
